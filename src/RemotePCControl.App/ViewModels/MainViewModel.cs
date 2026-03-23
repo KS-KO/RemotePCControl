@@ -13,6 +13,7 @@ public sealed class MainViewModel : ObservableObject
     private readonly RelayCommand _requestRemoteSupportCommand;
     private readonly RelayCommand _disconnectCommand;
     private readonly RelayCommand _copyFileCommand;
+    private readonly RelayCommand _uploadFileCommand;
     private readonly RelayCommand _toggleLocalDriveCommand;
     private DeviceModel? _selectedDevice;
     private string _quickConnectDeviceId = string.Empty;
@@ -37,14 +38,15 @@ public sealed class MainViewModel : ObservableObject
         SessionLogs = new ObservableCollection<SessionLogEntry>(_remoteSessionService.GetSeedLogs().OrderByDescending(log => log.Timestamp));
         ApprovalModes = ["User approval", "Pre-approved device", "Support request"];
 
-        SelectedDevice = Devices.FirstOrDefault();
-        QuickConnectDeviceId = SelectedDevice?.DeviceId ?? string.Empty;
-
         _quickConnectCommand = new RelayCommand(QuickConnect, CanConnect);
         _requestRemoteSupportCommand = new RelayCommand(RequestRemoteSupport, () => SelectedDevice is not null);
         _disconnectCommand = new RelayCommand(Disconnect, () => ActiveSessionStatus is not "Idle");
         _copyFileCommand = new RelayCommand(CopyFile, () => SelectedDevice is not null && IsCtrlCopyEnabled);
+        _uploadFileCommand = new RelayCommand(UploadFile, () => ActiveSessionStatus is not "Idle");
         _toggleLocalDriveCommand = new RelayCommand(ToggleLocalDrive, () => SelectedDevice is not null);
+
+        SelectedDevice = Devices.FirstOrDefault();
+        QuickConnectDeviceId = SelectedDevice?.DeviceId ?? string.Empty;
     }
 
     public ObservableCollection<DeviceModel> Devices { get; }
@@ -60,6 +62,8 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand DisconnectCommand => _disconnectCommand;
 
     public RelayCommand CopyFileCommand => _copyFileCommand;
+
+    public RelayCommand UploadFileCommand => _uploadFileCommand;
 
     public RelayCommand ToggleLocalDriveCommand => _toggleLocalDriveCommand;
 
@@ -186,7 +190,7 @@ public sealed class MainViewModel : ObservableObject
     public int ConnectionQualityPercent
     {
         get => _connectionQualityPercent;
-        private set => SetProperty(ref _connectionQualityPercent, value);
+        set => SetProperty(ref _connectionQualityPercent, value);
     }
 
     public string ConnectionQualitySummary
@@ -232,6 +236,27 @@ public sealed class MainViewModel : ObservableObject
         LastActionSummary = "Prepared clipboard file copy";
         StatusMessage = "Clipboard-assisted transfer pathway is active.";
         AddLog("Clipboard File Copy", "클립보드 기반 파일 복사/붙여넣기 흐름을 활성화했습니다.", $"Target: {target}");
+    }
+
+    private async void UploadFile()
+    {
+        var openFileDialog = new Microsoft.Win32.OpenFileDialog();
+        openFileDialog.Title = "Select File to Upload to Remote PC";
+        if (openFileDialog.ShowDialog() == true)
+        {
+            try
+            {
+                string filePath = openFileDialog.FileName;
+                TransferSummary = $"Uploading {System.IO.Path.GetFileName(filePath)}...";
+                await _remoteSessionService.UploadFileAsync(filePath);
+                TransferSummary = "File uploaded successfully.";
+                AddLog("File Transfer", $"파일 전송 완료: {System.IO.Path.GetFileName(filePath)}", "Direction: Upload");
+            }
+            catch (System.Exception ex)
+            {
+                TransferSummary = $"Upload error: {ex.Message}";
+            }
+        }
     }
 
     private void ToggleLocalDrive()
@@ -283,6 +308,7 @@ public sealed class MainViewModel : ObservableObject
         _requestRemoteSupportCommand.NotifyCanExecuteChanged();
         _disconnectCommand.NotifyCanExecuteChanged();
         _copyFileCommand.NotifyCanExecuteChanged();
+        _uploadFileCommand.NotifyCanExecuteChanged();
         _toggleLocalDriveCommand.NotifyCanExecuteChanged();
         RaisePropertyChanged(nameof(OnlineDeviceCount));
         RaisePropertyChanged(nameof(DeviceCount));

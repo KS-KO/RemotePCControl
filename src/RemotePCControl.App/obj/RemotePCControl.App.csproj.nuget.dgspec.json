@@ -10,7 +10,7 @@
         "projectUniqueName": "F:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj",
         "projectName": "RemotePCControl.App",
         "projectPath": "F:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj",
-        "packagesPath": "F:\\Project\\RemotePCControl\\.dotnet-home\\.nuget\\packages\\",
+        "packagesPath": "C:\\Users\\ksko\\.nuget\\packages\\",
         "outputPath": "F:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
@@ -51,6 +51,16 @@
       "frameworks": {
         "net9.0-windows7.0": {
           "targetAlias": "net9.0-windows",
+          "dependencies": {
+            "Vortice.DXGI": {
+              "target": "Package",
+              "version": "[3.8.3, )"
+            },
+            "Vortice.Direct3D11": {
+              "target": "Package",
+              "version": "[3.8.3, )"
+            }
+          },
           "imports": [
             "net461",
             "net462",

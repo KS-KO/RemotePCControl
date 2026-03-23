@@ -98,4 +98,9 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
             Meta = meta
         };
     }
+
+    public Task UploadFileAsync(string filePath)
+    {
+        return Task.CompletedTask;
+    }
 }

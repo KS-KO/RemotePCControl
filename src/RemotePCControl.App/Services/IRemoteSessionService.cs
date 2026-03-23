@@ -13,4 +13,6 @@ public interface IRemoteSessionService
     ConnectionSnapshot CreateSupportSession(DeviceModel? device);
 
     SessionLogEntry CreateLog(string title, string message, string meta);
+
+    Task UploadFileAsync(string filePath);
 }

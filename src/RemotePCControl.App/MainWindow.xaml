@@ -119,6 +119,7 @@
                             <Button Command="{Binding QuickConnectCommand}" Content="Quick Connect" />
                             <Button Command="{Binding RequestRemoteSupportCommand}" Content="Request Support Session" />
                             <Button Command="{Binding DisconnectCommand}" Content="Disconnect" Background="#30445B" />
+                            <Button Command="{Binding UploadFileCommand}" Content="Upload File to Remote" Background="#8E24AA" />
                             <Button Command="{Binding CopyFileCommand}" Content="Ctrl+C / Ctrl+V File Copy" Background="#0E9F6E" />
                             <Button Command="{Binding ToggleLocalDriveCommand}" Content="Toggle Local Drive Redirect" Background="#D97706" />
                         </WrapPanel>
