@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Reflection;
 using RemotePCControl.App.Infrastructure;
 using RemotePCControl.App.Models;
 using RemotePCControl.App.Services;
@@ -72,6 +73,17 @@ public sealed class MainViewModel : ObservableObject
     public string ArchitectureProfile => "Target: win-x64 only";
 
     public string UiArchitecture => "Pattern: MVVM";
+
+    public string GitVersionLabel
+    {
+        get
+        {
+            var attributes = Assembly.GetExecutingAssembly().GetCustomAttributes<AssemblyMetadataAttribute>();
+            string count = attributes.FirstOrDefault(a => a.Key == "GitCommitCount")?.Value ?? "0";
+            string hash = attributes.FirstOrDefault(a => a.Key == "GitCommitHash")?.Value ?? "Unknown";
+            return $"Commits: {count} | Hash: {hash}";
+        }
+    }
 
     public int DeviceCount => Devices.Count;
 

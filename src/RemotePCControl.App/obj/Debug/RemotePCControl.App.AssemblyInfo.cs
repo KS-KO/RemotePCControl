@@ -10,10 +10,12 @@
 using System;
 using System.Reflection;
 
+[assembly: System.Reflection.AssemblyMetadataAttribute("GitCommitCount", "3")]
+[assembly: System.Reflection.AssemblyMetadataAttribute("GitCommitHash", "e8fd901f2")]
 [assembly: System.Reflection.AssemblyCompanyAttribute("RemotePCControl.App")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5f253273fbad34616eb67ceeb5b5f1720efbfb1e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e8fd901f2ca592b72a0bf2b8520c829b7f864b85")]
 [assembly: System.Reflection.AssemblyProductAttribute("RemotePCControl.App")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RemotePCControl.App")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

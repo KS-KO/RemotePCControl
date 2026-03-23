@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "F:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj": {}
+    "f:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj": {}
   },
   "projects": {
-    "F:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj": {
+    "f:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "F:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj",
+        "projectUniqueName": "f:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj",
         "projectName": "RemotePCControl.App",
-        "projectPath": "F:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj",
+        "projectPath": "f:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj",
         "packagesPath": "C:\\Users\\ksko\\.nuget\\packages\\",
-        "outputPath": "F:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\obj\\",
+        "outputPath": "f:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages",

@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "3Yj9uSngky4=",
+  "dgSpecHash": "fT/r8HJN3Xw=",
   "success": true,
-  "projectFilePath": "F:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj",
+  "projectFilePath": "f:\\Project\\RemotePCControl\\src\\RemotePCControl.App\\RemotePCControl.App.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\ksko\\.nuget\\packages\\sharpgen.runtime\\2.4.2-beta\\sharpgen.runtime.2.4.2-beta.nupkg.sha512",
     "C:\\Users\\ksko\\.nuget\\packages\\sharpgen.runtime.com\\2.4.2-beta\\sharpgen.runtime.com.2.4.2-beta.nupkg.sha512",

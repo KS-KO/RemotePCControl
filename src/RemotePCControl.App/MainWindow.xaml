@@ -16,6 +16,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <Border Grid.Row="0"
@@ -263,5 +264,10 @@
                 </Grid>
             </Border>
         </Grid>
+
+        <!-- Status Bar Area -->
+        <Border Grid.Row="3" Margin="0,8,0,0" Padding="0,4,0,0" BorderThickness="0,1,0,0" BorderBrush="#E2E8F0">
+            <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource SubtleTextBrush}" FontSize="13" Text="{Binding GitVersionLabel}" />
+        </Border>
     </Grid>
 </Window>
