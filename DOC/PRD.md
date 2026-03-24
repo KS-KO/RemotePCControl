@@ -102,6 +102,7 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - FR-14: 시스템은 향후 확장을 위해 장치 관리, 인증, 세션 관리 기능을 분리 가능한 구조로 제공해야 한다.
 - FR-15: 애플리케이션의 상태표시줄 오른쪽 끝에는 변경 이력 및 버전 식별의 용이성을 위해, 현재 관리 중인 Git의 Commit Count와 Hash Code 9자리를 표시해야 한다.
 - FR-16: 애플리케이션은 동일한 환경에서 중복 프로세스가 불필요하게 늘어나는 것을 방지하고 오직 단일 인스턴스(Single Instance) 형태로만 한 번만 실행되어야 한다.
+- FR-17: 애플리케이션의 상태표시줄에는 운영자가 세션 중 시스템 부하를 빠르게 확인할 수 있도록 로컬 PC의 CPU 사용률과 메모리 사용 상태를 표시해야 한다.
 
 ### 비기능 요구사항
 - NFR-1: 모든 원격 세션 데이터는 전송 중 암호화되어야 한다.
@@ -146,3 +147,47 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - 무인 접속 기능을 MVP에 포함할지, 후속 버전으로 분리할지 판단이 필요하다.
 - 파일 전송, 다중 모니터, 클립보드, 세션 로그 고도화 기능의 MVP 우선순위 확정이 필요하다.
 - 상용화를 고려할 경우 라이선스 정책과 개인정보 처리 정책 정의가 필요하다.
+## 13. Multi-Monitor Update
+- The MVP viewer must support separate selection of `Captured Display` and `Viewer Window Display`.
+- The `Viewer Window Display` selector must include `Auto (Safe Display)`.
+- When `Keep viewer off captured display` is enabled, the viewer window must avoid the monitor currently used for capture.
+- If the viewer target and capture target are the same while safety mode is enabled, the viewer must fall back to a different monitor when available.
+- The UI and runtime logs should expose the active capture display and viewer display choices for operator validation.
+- This requirement exists to prevent recursive self-capture during same-PC or loopback validation.
+- The status bar must expose local CPU and memory usage for quick resource-state validation during a remote session.
+
+## 14. Implementation Update Summary
+### 14.1 Current MVP Status
+- The application currently supports loopback-based remote desktop verification on the same PC through a unified server/client runtime.
+- The remote viewer can receive screen frames, relay mouse input, relay keyboard input, and open programs through remote interaction.
+- File upload, audit timeline logging, capture-display selection, viewer-display selection, and safe viewer placement are connected in the current build.
+
+### 14.2 Screen Capture and Rendering
+- The original unstable DXGI desktop duplication runtime path was replaced with a GDI-based capture path for better execution stability in the current environment.
+- Raw BGRA rendering is supported in the viewer, and JPEG-compressed frame transport/decoding is also supported.
+- When the screen image does not change, redundant frame transmission is reduced to lower CPU usage and transport overhead.
+- Frame reception and remote window creation events are exposed through the audit timeline for runtime verification.
+
+### 14.3 Multi-Monitor Behavior
+- Operators can choose `Captured Display` and `Viewer Window Display` independently.
+- `Viewer Window Display` includes `Auto (Safe Display)` mode.
+- When safe placement is enabled, the viewer window avoids the captured monitor to prevent recursive self-capture.
+- If the operator manually moves the viewer onto the captured monitor in an extended-display environment, the viewer is repositioned to a safe monitor when available.
+
+### 14.4 Viewer and Session Behavior
+- When the operator closes the remote desktop window, the active remote session is terminated and the viewer is not reopened automatically by subsequent frames.
+- The viewer now exposes a shortcut bar for `Start`, `Run`, `Task Manager`, `Alt+Tab`, and `Esc`.
+- The viewer can forward keyboard input after focus is acquired, allowing program launch through Start search, Run dialog, and common shortcuts.
+- The local arrow cursor is explicitly shown over the remote viewer surface.
+
+### 14.5 UI and Operator Controls
+- The Connection Center currently exposes selectors for device ID, approval policy, captured display, viewer window display, capture rate, and transfer compression.
+- The Remote Features panel includes options such as clipboard sync, Ctrl+C/Ctrl+V file copy, safe viewer placement, local drive redirect, and auto reconnect.
+- Transfer compression options currently include raw BGRA and JPEG quality presets.
+- Capture rate presets currently include 15 FPS and 30 FPS.
+- The current build target and distribution baseline are maintained as a dedicated x64 build for Windows.
+
+### 14.6 Documentation and Remaining Follow-Up
+- The PRD already reflects multi-monitor safety behavior and status-bar resource visibility requirements.
+- CPU and memory indicators are documented as status-bar requirements, but the actual status-bar runtime implementation is still a follow-up item.
+- If remote cursor visibility still appears inconsistent after the local cursor fix, a remote-cursor overlay should be considered as the next implementation step.

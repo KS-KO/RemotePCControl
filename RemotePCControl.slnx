@@ -1,5 +1,8 @@
 <Solution>
-  <Folder Name="/src/">
-    <Project Path="src/RemotePCControl.App/RemotePCControl.App.csproj" />
-  </Folder>
+  <Configurations>
+    <Platform Name="x64" />
+  </Configurations>
+  <Project Path="RemotePCControl.App/RemotePCControl.App.csproj">
+    <Platform Project="x64" />
+  </Project>
 </Solution>
