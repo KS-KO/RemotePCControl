@@ -12,6 +12,8 @@ public sealed class FileSystemService
 {
     private bool _isDriveRedirectEnabled;
 
+    public bool IsDriveRedirectEnabled => _isDriveRedirectEnabled;
+
     public void SetDriveRedirectEnabled(bool enabled)
     {
         _isDriveRedirectEnabled = enabled;
@@ -24,7 +26,12 @@ public sealed class FileSystemService
     {
         if (!_isDriveRedirectEnabled)
         {
-            return "{\"error\": \"Drive redirection is disabled.\"}";
+            return JsonSerializer.Serialize(new FileSystemListResponse
+            {
+                IsSuccess = false,
+                CurrentPath = path,
+                ErrorMessage = "Drive redirection is disabled."
+            });
         }
 
         try
@@ -35,13 +42,24 @@ public sealed class FileSystemService
                 // 드라이브 목록 반환
                 var drives = DriveInfo.GetDrives()
                     .Where(d => d.IsReady)
-                    .Select(d => new RemotePCControl.App.Models.FileEntry { Name = d.Name, IsDirectory = true, Path = d.RootDirectory.FullName });
-                return JsonSerializer.Serialize(drives);
+                    .Select(d => new RemotePCControl.App.Models.FileEntry { Name = d.Name, IsDirectory = true, Path = d.RootDirectory.FullName })
+                    .ToList();
+                return JsonSerializer.Serialize(new FileSystemListResponse
+                {
+                    IsSuccess = true,
+                    CurrentPath = string.Empty,
+                    Entries = drives
+                });
             }
 
             if (!Directory.Exists(path))
             {
-                return JsonSerializer.Serialize(new { error = "Directory not found." });
+                return JsonSerializer.Serialize(new FileSystemListResponse
+                {
+                    IsSuccess = false,
+                    CurrentPath = path,
+                    ErrorMessage = "Directory not found."
+                });
             }
 
             var dirInfo = new DirectoryInfo(path);
@@ -57,11 +75,30 @@ public sealed class FileSystemService
                 entries.Add(new RemotePCControl.App.Models.FileEntry { Name = file.Name, IsDirectory = false, Path = file.FullName, Size = file.Length });
             }
 
-            return JsonSerializer.Serialize(entries);
+            return JsonSerializer.Serialize(new FileSystemListResponse
+            {
+                IsSuccess = true,
+                CurrentPath = path,
+                Entries = entries
+            });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return JsonSerializer.Serialize(new FileSystemListResponse
+            {
+                IsSuccess = false,
+                CurrentPath = path,
+                ErrorMessage = $"Access denied. {ex.Message}"
+            });
         }
         catch (Exception ex)
         {
-            return JsonSerializer.Serialize(new { error = ex.Message });
+            return JsonSerializer.Serialize(new FileSystemListResponse
+            {
+                IsSuccess = false,
+                CurrentPath = path,
+                ErrorMessage = ex.Message
+            });
         }
     }
 }

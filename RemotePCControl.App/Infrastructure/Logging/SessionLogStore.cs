@@ -1,6 +1,7 @@
 #nullable enable
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -10,8 +11,14 @@ namespace RemotePCControl.App.Infrastructure.Logging;
 
 public sealed class SessionLogStore
 {
+    private const int MaxLogEntries = 1000;
     private readonly string _logFilePath;
+    private readonly string _backupFilePath;
     private readonly object _lock = new();
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        WriteIndented = true
+    };
 
     public SessionLogStore()
     {
@@ -21,6 +28,7 @@ public sealed class SessionLogStore
             Directory.CreateDirectory(folder);
         }
         _logFilePath = Path.Combine(folder, "session_history.json");
+        _backupFilePath = Path.Combine(folder, "session_history.corrupt.json");
     }
 
     public void SaveLog(SessionLogEntry entry)
@@ -29,21 +37,16 @@ public sealed class SessionLogStore
         {
             try
             {
-                List<SessionLogEntry> logs = LoadAllLogs();
+                List<SessionLogEntry> logs = LoadAllLogsInternal();
                 logs.Insert(0, entry);
-                
-                // 최근 1000개만 유지 (성능 및 용량 관리)
-                if (logs.Count > 1000)
-                {
-                    logs = logs.Take(1000).ToList();
-                }
 
-                string json = JsonSerializer.Serialize(logs, new JsonSerializerOptions { WriteIndented = true });
+                logs = NormalizeLogs(logs);
+                string json = JsonSerializer.Serialize(logs, SerializerOptions);
                 File.WriteAllText(_logFilePath, json);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[SessionLogStore] Failed to save log: {ex.Message}");
+                Debug.WriteLine($"[SessionLogStore] Failed to save log: {ex.Message}");
             }
         }
     }
@@ -52,19 +55,75 @@ public sealed class SessionLogStore
     {
         lock (_lock)
         {
+            return LoadAllLogsInternal();
+        }
+    }
+
+    private List<SessionLogEntry> LoadAllLogsInternal()
+    {
+        try
+        {
+            if (!File.Exists(_logFilePath))
+            {
+                return [];
+            }
+
+            string json = File.ReadAllText(_logFilePath);
+            List<SessionLogEntry>? logs = JsonSerializer.Deserialize<List<SessionLogEntry>>(json, SerializerOptions);
+            return NormalizeLogs(logs ?? []);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SessionLogStore] Failed to load logs: {ex.Message}");
+            BackupCorruptedLogFile();
+            return [];
+        }
+    }
+
+    private void BackupCorruptedLogFile()
+    {
+        try
+        {
+            if (!File.Exists(_logFilePath))
+            {
+                return;
+            }
+
+            string backupPath = Path.Combine(
+                Path.GetDirectoryName(_backupFilePath)!,
+                $"session_history.corrupt.{DateTime.Now:yyyyMMddHHmmss}.json");
+            File.Copy(_logFilePath, backupPath, overwrite: true);
+            File.Delete(_logFilePath);
+            Debug.WriteLine($"[SessionLogStore] Corrupted log file backed up to: {backupPath}");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[SessionLogStore] Failed to backup corrupted log file: {ex.Message}");
+        }
+    }
+
+    private static List<SessionLogEntry> NormalizeLogs(IEnumerable<SessionLogEntry> logs)
+    {
+        return logs
+            .Where(log => !string.IsNullOrWhiteSpace(log.Title) && !string.IsNullOrWhiteSpace(log.Message))
+            .OrderByDescending(log => log.Timestamp)
+            .Take(MaxLogEntries)
+            .ToList();
+    }
+
+    public void ReplaceAllLogs(IEnumerable<SessionLogEntry> logs)
+    {
+        lock (_lock)
+        {
             try
             {
-                if (!File.Exists(_logFilePath))
-                {
-                    return new List<SessionLogEntry>();
-                }
-
-                string json = File.ReadAllText(_logFilePath);
-                return JsonSerializer.Deserialize<List<SessionLogEntry>>(json) ?? new List<SessionLogEntry>();
+                List<SessionLogEntry> normalized = NormalizeLogs(logs);
+                string json = JsonSerializer.Serialize(normalized, SerializerOptions);
+                File.WriteAllText(_logFilePath, json);
             }
-            catch
+            catch (Exception ex)
             {
-                return new List<SessionLogEntry>();
+                Debug.WriteLine($"[SessionLogStore] Failed to replace logs: {ex.Message}");
             }
         }
     }

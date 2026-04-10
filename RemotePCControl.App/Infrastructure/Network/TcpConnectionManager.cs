@@ -78,7 +78,7 @@ public sealed class TcpConnectionManager : IDisposable
         }
     }
 
-    public async Task<TcpSession> ConnectAsync(string ipAddress, int port, CancellationToken cancellationToken = default)
+    public async Task<TcpSession> ConnectAsync(string ipAddress, int port, string? expectedThumbprint = null, CancellationToken cancellationToken = default)
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(TcpConnectionManager));
 
@@ -87,10 +87,11 @@ public sealed class TcpConnectionManager : IDisposable
         try
         {
             await client.ConnectAsync(ipAddress, port, cancellationToken).ConfigureAwait(false);
-            
-            var sslStream = new SslStream(client.GetStream(), false, 
-                new RemoteCertificateValidationCallback((sender, certificate, chain, errors) => true)); // 자가서명 인증서 허용
-            
+
+            var sslStream = new SslStream(client.GetStream(), false,
+                new RemoteCertificateValidationCallback((sender, certificate, chain, errors) =>
+                    ValidateRemoteCertificate(certificate, errors, expectedThumbprint)));
+
             await sslStream.AuthenticateAsClientAsync(ipAddress).ConfigureAwait(false);
 
             var session = new TcpSession(client, sslStream);
@@ -103,6 +104,54 @@ public sealed class TcpConnectionManager : IDisposable
             client.Dispose();
             throw;
         }
+    }
+
+    private static bool ValidateRemoteCertificate(X509Certificate? certificate, SslPolicyErrors errors, string? expectedThumbprint)
+    {
+        X509Certificate2? cert2 = certificate as X509Certificate2;
+        if (cert2 is null && certificate is not null)
+        {
+            cert2 = new X509Certificate2(certificate);
+        }
+
+        if (cert2 is null)
+        {
+            Debug.WriteLine("[Network] Remote certificate validation failed: certificate was null.");
+            return false;
+        }
+
+        string remoteThumbprint = NormalizeThumbprint(cert2.Thumbprint);
+        string normalizedExpectedThumbprint = NormalizeThumbprint(expectedThumbprint);
+
+        if (!string.IsNullOrWhiteSpace(normalizedExpectedThumbprint))
+        {
+            bool isMatch = string.Equals(remoteThumbprint, normalizedExpectedThumbprint, StringComparison.OrdinalIgnoreCase);
+            if (!isMatch)
+            {
+                Debug.WriteLine($"[Network] Remote certificate thumbprint mismatch. Expected={normalizedExpectedThumbprint}, Actual={remoteThumbprint}");
+            }
+
+            return isMatch;
+        }
+
+        bool onlyExpectedSelfSignedErrors = errors is SslPolicyErrors.None
+            or SslPolicyErrors.RemoteCertificateChainErrors
+            or SslPolicyErrors.RemoteCertificateNameMismatch
+            or (SslPolicyErrors.RemoteCertificateChainErrors | SslPolicyErrors.RemoteCertificateNameMismatch);
+
+        if (!onlyExpectedSelfSignedErrors)
+        {
+            Debug.WriteLine($"[Network] Remote certificate validation failed with unexpected policy errors: {errors}");
+        }
+
+        return onlyExpectedSelfSignedErrors;
+    }
+
+    private static string NormalizeThumbprint(string? thumbprint)
+    {
+        return string.IsNullOrWhiteSpace(thumbprint)
+            ? string.Empty
+            : thumbprint.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();
     }
 
     private void RegisterSession(TcpSession session)

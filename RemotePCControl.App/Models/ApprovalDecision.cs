@@ -4,5 +4,6 @@ public enum ApprovalDecision
 {
     Approved,
     Denied,
-    Cancelled
+    Cancelled,
+    TimedOut
 }

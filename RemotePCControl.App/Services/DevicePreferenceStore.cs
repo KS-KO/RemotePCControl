@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -48,7 +49,7 @@ public sealed class DevicePreferenceStore
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DevicePreferenceStore] Load failed: {ex.Message}");
+                Debug.WriteLine($"[DevicePreferenceStore] Load failed: {ex.Message}");
             }
         }
 
@@ -68,7 +69,10 @@ public sealed class DevicePreferenceStore
                     return snapshot;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DevicePreferenceStore] Migration failed: {ex.Message}");
+            }
         }
 
         return DevicePreferenceSnapshot.Empty;
@@ -94,7 +98,19 @@ public sealed class DevicePreferenceStore
                     LastConnectedAt = entry.LastConnectedAt
                 })
                 .ToArray(),
-            DeviceMetadata = snapshot.DeviceMetadata.ToDictionary(kvp => kvp.Key, kvp => kvp.Value)
+            DeviceMetadata = snapshot.DeviceMetadata.ToDictionary(kvp => kvp.Key, kvp => kvp.Value),
+            LastKnownConnection = snapshot.LastKnownConnection is null
+                ? null
+                : new PersistedLastKnownConnection
+                {
+                    DeviceInternalGuid = snapshot.LastKnownConnection.DeviceInternalGuid,
+                    DeviceName = snapshot.LastKnownConnection.DeviceName,
+                    DeviceCode = snapshot.LastKnownConnection.DeviceCode,
+                    LastApprovalMode = snapshot.LastKnownConnection.LastApprovalMode,
+                    Address = snapshot.LastKnownConnection.Address,
+                    Port = snapshot.LastKnownConnection.Port,
+                    LastConnectedAt = snapshot.LastKnownConnection.LastConnectedAt
+                }
         };
 
         string json = JsonSerializer.Serialize(persisted, SerializerOptions);
@@ -120,18 +136,38 @@ public sealed class DevicePreferenceStore
                     LastConnectedAt = entry.LastConnectedAt
                 })
                 .ToArray(),
-            persisted.DeviceMetadata ?? new Dictionary<string, DeviceMetadata>(StringComparer.OrdinalIgnoreCase));
+            persisted.DeviceMetadata ?? new Dictionary<string, DeviceMetadata>(StringComparer.OrdinalIgnoreCase),
+            persisted.LastKnownConnection is null
+                ? null
+                : new LastKnownConnectionInfo(
+                    persisted.LastKnownConnection.DeviceInternalGuid,
+                    persisted.LastKnownConnection.DeviceName,
+                    persisted.LastKnownConnection.DeviceCode,
+                    persisted.LastKnownConnection.LastApprovalMode,
+                    persisted.LastKnownConnection.Address,
+                    persisted.LastKnownConnection.Port,
+                    persisted.LastKnownConnection.LastConnectedAt));
     }
 
     public sealed record DevicePreferenceSnapshot(
         IReadOnlyList<string> FavoriteDeviceInternalGuids,
         IReadOnlyList<RecentConnectionEntry> RecentConnections,
-        IReadOnlyDictionary<string, DeviceMetadata> DeviceMetadata)
+        IReadOnlyDictionary<string, DeviceMetadata> DeviceMetadata,
+        LastKnownConnectionInfo? LastKnownConnection)
     {
-        public static DevicePreferenceSnapshot Empty { get; } = new([], [], new Dictionary<string, DeviceMetadata>());
+        public static DevicePreferenceSnapshot Empty { get; } = new([], [], new Dictionary<string, DeviceMetadata>(), null);
     }
 
     public sealed record DeviceMetadata(string? CustomName, string? CustomDescription, string? TrustedThumbprint = null);
+
+    public sealed record LastKnownConnectionInfo(
+        string DeviceInternalGuid,
+        string DeviceName,
+        string DeviceCode,
+        string LastApprovalMode,
+        string Address,
+        int Port,
+        DateTime LastConnectedAt);
 
     private sealed class PersistedDevicePreferenceSnapshot
     {
@@ -140,6 +176,8 @@ public sealed class DevicePreferenceStore
         public PersistedRecentConnectionEntry[]? RecentConnections { get; init; }
         
         public Dictionary<string, DeviceMetadata>? DeviceMetadata { get; init; }
+
+        public PersistedLastKnownConnection? LastKnownConnection { get; init; }
     }
 
     private sealed class PersistedRecentConnectionEntry
@@ -153,6 +191,34 @@ public sealed class DevicePreferenceStore
         public string LastApprovalMode { get; init; } = string.Empty;
 
         public DateTime LastConnectedAt { get; init; }
+    }
+
+    private sealed class PersistedLastKnownConnection
+    {
+        public string DeviceInternalGuid { get; init; } = string.Empty;
+
+        public string DeviceName { get; init; } = string.Empty;
+
+        public string DeviceCode { get; init; } = string.Empty;
+
+        public string LastApprovalMode { get; init; } = string.Empty;
+
+        public string Address { get; init; } = string.Empty;
+
+        public int Port { get; init; }
+
+        public DateTime LastConnectedAt { get; init; }
+    }
+
+    public bool IsFavoriteDevice(string? internalGuid)
+    {
+        if (string.IsNullOrWhiteSpace(internalGuid))
+        {
+            return false;
+        }
+
+        DevicePreferenceSnapshot snapshot = Load();
+        return snapshot.FavoriteDeviceInternalGuids.Any(value => string.Equals(value, internalGuid, StringComparison.OrdinalIgnoreCase));
     }
 
     public void UpdateDeviceTrustedThumbprint(string internalGuid, string thumbprint)

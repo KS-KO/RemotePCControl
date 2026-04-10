@@ -59,10 +59,12 @@ public sealed class FileTransferService
         catch (OperationCanceledException)
         {
             Debug.WriteLine($"[FileTransfer] Transmitting canceled: {filePath}");
+            throw;
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"[FileTransfer] SendFileWithMetaAsync Error: {ex.Message}");
+            throw;
         }
         finally
         {
@@ -95,11 +97,13 @@ public sealed class FileTransferService
         catch (OperationCanceledException)
         {
             Debug.WriteLine($"[FileTransfer] Transmitting canceled: {filePath}");
+            throw;
         }
         catch (Exception ex)
         {
             // 방어적 예외 로깅
             Debug.WriteLine($"[FileTransfer] SendFileAsync Error: {ex.Message}");
+            throw;
         }
         finally
         {

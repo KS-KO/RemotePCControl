@@ -168,6 +168,7 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - 로컬 탐색 프로토콜을 UDP 브로드캐스트로 할지 멀티캐스트로 할지 결정이 필요하다.
 - 동일 식별자 충돌 시 자동 이름 변경 규칙을 둘지, 사용자 수동 수정만 허용할지 결정이 필요하다.
 - 인터넷 확장 시 중앙 디렉터리와 릴레이 서버를 분리할지 통합할지 결정이 필요하다.
+
 ## 13. Multi-Monitor Update
 - The MVP viewer must support separate selection of `Captured Display` and `Viewer Window Display`.
 - The `Viewer Window Display` selector must include `Auto (Safe Display)`.
@@ -182,7 +183,8 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - The application currently supports loopback-based remote desktop verification on the same PC through a unified server/client runtime.
 - The remote viewer can receive screen frames, relay mouse input, relay keyboard input, and open programs through remote interaction.
 - Capture-display selection, viewer-display selection, safe viewer placement, audit timeline presentation, and loopback file upload flow are connected in the current build.
-- The current build does not yet complete the full PRD scope for bidirectional file transfer, persisted audit logging, clipboard synchronization, drive redirection, or encrypted transport.
+- The current build now includes bounded auto reconnect, persisted audit logging, recent-connection/favorite persistence, text-first clipboard synchronization, redirected-drive browsing, production-oriented remote download handling, and persisted transport certificate validation.
+- The current build still does not complete the full PRD scope for measured latency telemetry, full host-driven support workflow, advanced file transfer UX, or broader internet-scale connection architecture.
 
 ### 14.2 Screen Capture and Rendering
 - The original unstable DXGI desktop duplication runtime path was replaced with a GDI-based capture path for better execution stability in the current environment.
@@ -211,19 +213,26 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - Capture rate presets currently include 15 FPS and 30 FPS.
 - The current build target and distribution baseline are maintained as a dedicated x64 build for Windows.
 - The bottom status bar currently shows live local CPU usage, memory usage, and the Git commit count/hash label.
-- Recent connections and favorite-device management are not yet exposed as dedicated operator workflows in the current UI.
+- Recent connections and favorite-device management are exposed in the main UI, and their state persists across application restarts.
 
 ### 14.6 Documentation and Remaining Follow-Up
 - The PRD already reflects multi-monitor safety behavior and status-bar resource visibility requirements.
 - CPU and memory indicators are no longer a follow-up item; the current status bar already shows live local CPU and memory usage together with the Git version label.
 - If remote cursor visibility still appears inconsistent after the local cursor fix, a remote-cursor overlay should be considered as the next implementation step.
-- `Approval Policy` is partially connected. The current build includes allow/deny branching, but `Support request` is not yet tied to a distinct end-to-end host approval workflow and policy rules still need hardening.
-- The `Auto reconnect` option is no longer UI-only. The current build includes a bounded retry workflow, but additional UX refinement and clearer disconnect cause reporting are still follow-up items.
-- Clipboard sync, `Ctrl+C` / `Ctrl+V` file transfer, and local drive redirect currently expose operator toggles and status messaging, but they are not yet wired to a complete remote session data path.
-- File transfer currently supports a basic upload/send path in the loopback runtime, but a production-ready upload/download workflow and operator-selectable destination handling are still follow-up items.
-- Audit timeline entries are currently kept in application memory for runtime verification. Persistent session log storage is still a follow-up item.
-- Transport encryption and secure-at-rest protection for stored device identity data remain follow-up items.
-- Recent connection history and favorite device management remain follow-up items.
+- `Approval Policy` is now policy별로 분기되지만, 실제 원격 호스트 승인 UI/서비스 분리까지 포함한 완전한 production workflow는 후속 과제다.
+- `Auto reconnect`는 bounded retry, 상태 전이, 마지막 정상 연결 정보 재사용까지 구현되었지만, 실측 latency와 더 세밀한 장애 원인 표시는 후속 과제다.
+- Clipboard text sync, redirected drive browsing, recent/favorite persistence, persisted audit logging, and certificate-backed transport validation are now connected in the runtime path.
+- File transfer is no longer limited to a hardcoded receive target, but operator-selectable destination UX와 대용량/취소 UX는 여전히 후속 과제다.
+- Stored device identity and preference data continue to use DPAPI protection, and transport certificates are now persisted and validated by thumbprint.
+- 이번 구현 범위:
+    - 감사 타임라인 로그는 앱 재시작 이후에도 유지되도록 로컬 저장소에 안정적으로 보존한다.
+    - 로그 파일 손상 또는 역직렬화 실패 시 앱 기동이 중단되지 않도록 백업 후 복구 가능한 기본 상태로 되돌린다.
+    - 로그 로딩 시 최신순 정렬과 최대 보관 개수 제한을 일관되게 적용한다.
+    - 저장 실패와 복구 동작은 디버그 로그에서 추적 가능하도록 남긴다.
+    - 전송 계층은 `SslStream` 연결 시 서버 인증서를 실제로 검증하고, 신뢰되지 않은 인증서는 자동 허용하지 않는다.
+    - 자가 서명 인증서는 앱 재시작 후에도 동일한 지문을 유지할 수 있도록 로컬에 안전하게 보존한다.
+    - 저장된 장치 지문과 실제 수신 지문이 불일치하면 연결을 차단하고 감사 로그에 보안 경고를 남긴다.
+    - 저장 데이터 보호는 DPAPI 기반 암호화를 유지하되, 신뢰 지문 검증 실패 시 자동 갱신 대신 명시적 승인 흐름을 요구하도록 정리한다.
 
 ### 14.7 Build Verification Update
 - A routine verification flow for the current Windows x64 MVP must include `clean -> build -> run` in sequence.
@@ -231,16 +240,29 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - Any failure discovered during clean, build, or startup must be recorded with the failing stage and the exact error message for follow-up.
 
 ### 14.8 Next Development Target
-- The next implementation target is to harden `Approval Policy` so that `User approval`, `Pre-approved device`, and `Support request` each follow a distinct and verifiable session-authorization path.
-- `Pre-approved device` must only allow devices explicitly marked as trusted, and must not rely on placeholder logic.
-- `Support request` must progress beyond UI-only snapshot state and participate in the actual connection request and approval flow.
-- Approval outcomes should be reflected consistently in session state text and runtime audit logs so operators can understand whether a session was allowed, denied, cancelled, or timed out.
+- The next implementation target is to elevate the current approval-policy runtime into a full host-driven production workflow.
+- `Support request` should move beyond the local approval dialog model and integrate with a distinct host-side request/response channel.
+- Approval outcomes should remain consistent in session state text, runtime audit logs, and reconnect policy handling.
+- The next step should also define how first-time certificate trust, approval prompts, and operator identity are combined in a single security workflow.
+- Recommended next execution order:
+    - 실제 Resilience/보안 시나리오 테스트 수행 및 결과 기록
+    - Host-driven support workflow 설계 및 구현
+    - 측정 기반 latency/품질 상태 표시 추가
+    - 파일 전송 UX 고도화(저장 위치 선택, 취소, 대용량 처리)
+    - 인터넷 확장 구조(P2P/Relay/Hybrid) 결정
+    - QA가 그대로 수행할 수 있는 단계별 테스트 런북을 `RESILIENCE_REVIEW.md`에 유지한다.
+    - 테스트 결과 예시는 실제 QA 기록 형식과 최대한 유사한 문구로 유지해 후속 기록 품질을 표준화한다.
 
 ### 14.9 Clipboard Sync Development Target
 - The next implementation target after approval-policy hardening is to connect the existing clipboard option to an actual text clipboard synchronization path inside the loopback session runtime.
 - Clipboard sync must be limited to text content for the current MVP step.
 - The synchronization flow should avoid redundant clipboard writes and should not create an infinite echo loop between local and remote runtime endpoints.
 - Clipboard sync state changes and notable synchronization events should be visible in runtime logs for operator validation.
+- 이번 구현 범위:
+    - 클립보드 동기화 MVP 경로는 텍스트 중심으로 명확히 정리하고, 이미지 및 파일 클립보드 경로와 로그를 분리한다.
+    - 동일 텍스트의 재전송과 재적용을 방지하기 위해 마지막 송신 텍스트와 마지막 수신 적용 텍스트를 함께 사용한 echo loop 차단 규칙을 강화한다.
+    - 비정상적으로 큰 텍스트 payload 또는 빈 텍스트는 방어적으로 무시하고 감사 로그에 이유를 남긴다.
+    - `Enabled`, `Sent`, `Received`, `Skipped`, `Error` 수준으로 운영자가 추적 가능한 로그를 남긴다.
 
 ### 14.10 Recent And Favorite Device Development Target
 - The next implementation target after clipboard synchronization is to expose operator workflows for recent connections and favorite devices in the main client UI.
@@ -255,6 +277,11 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - The file transfer protocol must be updated to include metadata (filename, size) before transferring chunks, and to support explicit download requests.
 - The current hardcoded "ReceivedFile.dat" destination must be replaced with a user-sanitized or operator-selected filename in a designated download folder (e.g., Downloads/RemotePCControl).
 - The UI must provide a "Download File from Remote" button that triggers a path-based or placeholder-based request flow in the loopback runtime.
+- 이번 구현 범위:
+    - 메인 화면의 `Download File from Remote` 버튼은 하드코딩된 샘플 경로 대신 원격 파일 브라우저 기반 선택 흐름으로 전환한다.
+    - 파일 메타 수신 시 원격 파일명을 그대로 사용하지 않고 Windows 파일명 규칙에 맞게 정규화한 뒤 저장한다.
+    - 기본 다운로드 위치는 `Downloads/RemotePCControl`로 고정하되, 동일 파일명이 있을 경우 덮어쓰지 않고 고유한 이름으로 저장한다.
+    - 원격 파일 송신 실패(예: 파일 없음, 접근 거부)는 감사 로그와 상태 메시지에서 식별 가능하도록 명시적으로 기록한다.
 
 ## 16. Local Drive Redirection Development Target
 - After completing bidirectional file transfer, the local drive redirection feature should be implemented to allow the remote system to see local drives.
@@ -268,3 +295,30 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
     - The Host side (Server) will expose a "Redirected Drives" viewer that allows browsing client-shared folders.
     - The Viewer side (Client) will manage which local drives or folders are exposed via the `IsLocalDriveRedirectEnabled` policy.
     - **Remote File Browser**: A dedicated UI window will be implemented to browse the remote file system, allowing users to select files for download rather than using hardcoded paths.
+- 이번 구현 범위:
+    - `IsLocalDriveRedirectEnabled`가 꺼진 상태에서는 파일 시스템 목록 요청을 즉시 차단하고, 사용자와 감사 로그에 명확한 비활성화 사유를 표시한다.
+    - 파일 시스템 목록 응답은 성공 항목과 오류 항목을 구분할 수 있는 구조로 정리하여 UI가 오류를 정상적으로 표시할 수 있게 한다.
+    - 원격 파일 브라우저 창은 중복 생성하지 않고 재사용하며, 리디렉션 드라이브 탐색과 원격 파일 다운로드 탐색이 동일한 브라우저 워크플로우를 사용하도록 통합한다.
+    - 초기 단계에서는 로컬 드라이브 루트와 실제 디렉터리 탐색을 지원하되, 존재하지 않는 경로와 접근 거부 경로를 방어적으로 처리한다.
+
+## 17. Resilience Review
+- 시스템의 회복탄력성(Resilience)을 보장하기 위해 네트워크 단절, 프로세스 충돌, 리소스 부족 등 극한 상황에서의 동작을 검토하고 개선안을 도출한다.
+- 주요 검토 항목:
+    - 자동 재연결(Auto Reconnect) 로직의 지수 백오프(Exponential Backoff) 및 최대 시도 횟수 적절성 자가 진단.
+    - 네트워크 지연(Latency) 및 패킷 손실(Packet Loss) 발생 시 화면 전송 품질(Quality of Service) 동적 조정.
+    - 리소스 누수(Memory/Handle Leak) 방지를 위한 장시간 세션 가용성 검증.
+    - 비정상 종료 후 재시작 시 세션 복구 및 상태 무결성 확인.
+- 상세 내용은 `DOC/RESILIENCE_REVIEW.md` 문서에서 관리한다.
+- 이번 구현 범위:
+    - 재연결 상태를 `Disconnected` / `Reconnecting` / `Connected` / `Failed`로 명확히 구분하고 UI에 즉시 반영한다.
+    - 자동 재연결은 선형 대기 대신 지수 백오프를 적용하고, 누적 시도 한도 및 포기 사유를 로그와 상태 메시지에 남긴다.
+    - 마지막 정상 연결 대상(식별자, 승인 방식, 주소/포트, 성공 시각)을 안전하게 보존하여 재연결 시 우선 활용한다.
+    - `Pre-approved device` 판정 시 현재 메모리 상태뿐 아니라 저장된 즐겨찾기 상태를 함께 검증하여 앱 재시작 후에도 정책 일관성을 유지한다.
+    - 재연결 취소, 사용자 수동 종료, 승인 거부를 서로 다른 종료 사유로 처리하여 불필요한 자동 재시도를 방지한다.
+- 검증 범위:
+    - 단기 네트워크 단절 후 자동 복구 시 `Reconnecting` 상태가 표시되고, 성공 시 최근 연결 기록 및 마지막 정상 연결 정보가 갱신되는지 확인한다.
+    - 장치 재탐색 실패 상황에서 마지막 정상 엔드포인트를 사용해 재연결이 계속 진행되는지 확인한다.
+    - 최대 재시도 횟수 또는 최대 재연결 시간 초과 시 최종 상태가 `Failed`로 종료되고 수동 연결 안내가 노출되는지 확인한다.
+    - 사용자가 수동으로 세션을 종료한 경우 자동 재연결이 시작되지 않는지 확인한다.
+    - 앱 재시작 이후에도 `Pre-approved device` 정책이 저장된 즐겨찾기 기준으로 동일하게 동작하는지 확인한다.
+    - 각 검증 항목은 테스트 일시, 수행자, 결과, 로그 근거, 후속 조치를 기록할 수 있는 표 형식의 템플릿으로 관리한다.

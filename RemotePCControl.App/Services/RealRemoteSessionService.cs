@@ -27,6 +27,14 @@ namespace RemotePCControl.App.Services;
 
 public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposable
 {
+    private const int MaxReconnectAttempts = 5;
+    private const int MaxClipboardTextLength = 64 * 1024;
+    private static readonly TimeSpan MaxReconnectDelay = TimeSpan.FromSeconds(16);
+    private static readonly TimeSpan MaxReconnectWindow = TimeSpan.FromMinutes(5);
+    private static readonly string DownloadFolderPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        "Downloads",
+        "RemotePCControl");
     private const byte ScreenFramePacketType = 0x00;
     private const byte MouseInputPacketType = 0x01;
     private const byte KeyboardInputPacketType = 0x02;
@@ -79,9 +87,11 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     private bool _autoReconnectEnabled = true;
     private bool _isClipboardSyncEnabled = true;
     private bool _userInitiatedDisconnect;
-    private bool _isReconnectInProgress;
+    private int _isReconnectInProgress;
     private DeviceModel? _lastRequestedDevice;
     private string? _lastRequestedIdentifier;
+    private string? _lastRequestedAddress;
+    private int _lastRequestedPort;
     private string _lastApprovalMode = "User approval";
     private CancellationTokenSource? _reconnectCts;
     private CancellationTokenSource? _clipboardSyncCts;
@@ -96,6 +106,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     private string _receivingFilePath = string.Empty;
     private long _receivingFileSize = 0;
     private long _receivedBytes = 0;
+    private DevicePreferenceStore.LastKnownConnectionInfo? _lastKnownConnection;
     private bool _isDisposed;
 
     public RealRemoteSessionService()
@@ -263,7 +274,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     public void SetClipboardSyncEnabled(bool enabled)
     {
         _isClipboardSyncEnabled = enabled;
-        PublishLog("Clipboard Sync", enabled ? "Clipboard text sync enabled." : "Clipboard text sync disabled.", "Clipboard");
+        PublishLog("Clipboard Sync", enabled ? "Clipboard text sync enabled." : "Clipboard text sync disabled.", "Clipboard / Text / State");
 
         if (!enabled)
         {
@@ -284,6 +295,12 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     {
         if (_currentSession == null || _isDisposed)
         {
+            return;
+        }
+
+        if (!_fileSystemService.IsDriveRedirectEnabled)
+        {
+            PublishLog("FS List Blocked", "Drive redirection is disabled. File system request was not sent.", "FileSystem");
             return;
         }
 
@@ -359,32 +376,62 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     {
         // 영구 저장된 로그를 먼저 가져오고 기본 로그 추가
         var savedLogs = _logStore.LoadAllLogs();
-        if (savedLogs.Count > 0) return savedLogs;
+        if (savedLogs.Count > 0)
+        {
+            return savedLogs;
+        }
 
-        return
+        List<SessionLogEntry> seedLogs =
         [
-            CreateLog("Engine Started", "RealRemoteSessionService initialized with Network, Capture, Discovery, and Input engines.", "System Ready"),
-            CreateLog("Local Device Ready", $"{_localIdentity.DeviceName} / {_localIdentity.DeviceCode}", $"GUID: {_localIdentity.InternalGuid[..8]}"),
+            new SessionLogEntry
+            {
+                Timestamp = DateTime.Now,
+                Title = "Engine Started",
+                Message = "RealRemoteSessionService initialized with Network, Capture, Discovery, and Input engines.",
+                Meta = "System Ready"
+            },
+            new SessionLogEntry
+            {
+                Timestamp = DateTime.Now,
+                Title = "Local Device Ready",
+                Message = $"{_localIdentity.DeviceName} / {_localIdentity.DeviceCode}",
+                Meta = $"GUID: {_localIdentity.InternalGuid[..8]}"
+            },
             _duplicateCheckResult.IsDuplicate
-                ? CreateLog("Duplicate Identifier Warning", "같은 로컬 네트워크에서 중복 장치 이름 또는 장치 번호가 감지되었습니다.", $"Conflicts: {_duplicateCheckResult.Conflicts.Count}")
-                : CreateLog("Duplicate Identifier Check", "로컬 네트워크 기준 중복 장치 식별자가 발견되지 않았습니다.", "Broadcast probe complete")
+                ? new SessionLogEntry
+                {
+                    Timestamp = DateTime.Now,
+                    Title = "Duplicate Identifier Warning",
+                    Message = "같은 로컬 네트워크에서 중복 장치 이름 또는 장치 번호가 감지되었습니다.",
+                    Meta = $"Conflicts: {_duplicateCheckResult.Conflicts.Count}"
+                }
+                : new SessionLogEntry
+                {
+                    Timestamp = DateTime.Now,
+                    Title = "Duplicate Identifier Check",
+                    Message = "로컬 네트워크 기준 중복 장치 식별자가 발견되지 않았습니다.",
+                    Meta = "Broadcast probe complete"
+                }
         ];
+
+        _logStore.ReplaceAllLogs(seedLogs);
+        return seedLogs.OrderByDescending(log => log.Timestamp).ToArray();
     }
 
     public ConnectionSnapshot CreateQuickConnection(DeviceModel? device, string approvalMode)
     {
         _lastRequestedDevice = device;
         _lastRequestedIdentifier = device?.DeviceCode ?? device?.DeviceId;
-        _lastApprovalMode = approvalMode;
+        _lastApprovalMode = ApprovalService.NormalizePolicy(approvalMode);
         _userInitiatedDisconnect = false;
 
-        if (approvalMode == "Pre-approved device" && !(device?.IsFavorite ?? false))
+        if (_lastApprovalMode == "Pre-approved device" && !IsPreApprovedDevice(device))
         {
             ConnectionSnapshot deniedSnapshot = CreateApprovalDeniedSnapshot(
                 "Approval denied",
                 "Pre-approved device policy rejected this connection because the target is not marked as trusted.",
                 "Approval denied");
-            PublishLog("Connection Denied", $"{device?.Name ?? "Unknown Device"} is not in the pre-approved device set.", "Approval");
+            PublishLog("Connection Denied", $"{device?.Name ?? "Unknown Device"} is not in the pre-approved device set.", "Trusted Approval");
             PublishSnapshot(deniedSnapshot);
             return deniedSnapshot;
         }
@@ -393,10 +440,12 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             ?? device?.Endpoints.FirstOrDefault();
         string targetAddress = selectedEndpoint?.Address ?? IPAddress.Loopback.ToString();
         int targetPort = selectedEndpoint?.Port ?? 9999;
+        _lastRequestedAddress = targetAddress;
+        _lastRequestedPort = targetPort;
 
         _viewerClosedByUser = false;
-        _ = ConnectToTargetAsync(targetAddress, targetPort, device, approvalMode, isReconnect: false, CancellationToken.None);
-        ConnectionSnapshot pendingSnapshot = CreatePendingApprovalSnapshot(targetAddress, targetPort, approvalMode);
+        _ = ConnectToTargetAsync(targetAddress, targetPort, device, _lastApprovalMode, isReconnect: false, CancellationToken.None);
+        ConnectionSnapshot pendingSnapshot = CreatePendingApprovalSnapshot(targetAddress, targetPort, _lastApprovalMode);
         PublishSnapshot(pendingSnapshot);
         return pendingSnapshot;
     }
@@ -410,6 +459,8 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     {
         _userInitiatedDisconnect = true;
         _reconnectCts?.Cancel();
+        _reconnectCts?.Dispose();
+        _reconnectCts = null;
         _captureCts?.Cancel();
         _captureCts?.Dispose();
         _captureCts = null;
@@ -536,16 +587,25 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     {
         try
         {
+            _lastRequestedAddress = ip;
+            _lastRequestedPort = port;
+            string normalizedApprovalMode = ApprovalService.NormalizePolicy(approvalMode);
+            string approvalLogCategory = ApprovalService.GetApprovalLogCategory(normalizedApprovalMode);
+            if (isReconnect && ApprovalService.RequiresInteractiveApproval(normalizedApprovalMode))
+            {
+                PublishLog("Reconnect Approval Bypass", $"{normalizedApprovalMode} 정책 재연결은 이전 승인 세션으로 간주하여 자동 승인됩니다.", approvalLogCategory);
+            }
+
             ApprovalDecision approvalDecision = await _approvalService
-                .RequestApprovalAsync(device, approvalMode, isReconnect, cancellationToken)
+                .RequestApprovalAsync(device, normalizedApprovalMode, isReconnect, cancellationToken)
                 .ConfigureAwait(false);
             if (approvalDecision == ApprovalDecision.Denied)
             {
                 ConnectionSnapshot deniedSnapshot = CreateApprovalDeniedSnapshot(
                     "Approval denied",
-                    $"Connection to {device?.Name ?? $"{ip}:{port}"} was denied by policy {approvalMode}.",
+                    $"Connection to {device?.Name ?? $"{ip}:{port}"} was denied by policy {normalizedApprovalMode}.",
                     "Approval denied");
-                PublishLog("Connection Denied", $"Connection to {device?.Name ?? $"{ip}:{port}"} was denied by policy {approvalMode}.", "Approval");
+                PublishLog("Connection Denied", $"Connection to {device?.Name ?? $"{ip}:{port}"} was denied by policy {normalizedApprovalMode}.", approvalLogCategory);
                 PublishSnapshot(deniedSnapshot);
                 return;
             }
@@ -560,12 +620,28 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                     QualityPercent = 0,
                     QualitySummary = "Approval cancelled"
                 };
-                PublishLog("Connection Cancelled", $"Connection to {device?.Name ?? $"{ip}:{port}"} was cancelled by the operator.", "Approval");
+                PublishLog("Connection Cancelled", $"Connection to {device?.Name ?? $"{ip}:{port}"} was cancelled by the operator.", approvalLogCategory);
                 PublishSnapshot(cancelledSnapshot);
                 return;
             }
 
-            var session = await _tcpManager.ConnectAsync(ip, port).ConfigureAwait(false);
+            if (approvalDecision == ApprovalDecision.TimedOut)
+            {
+                ConnectionSnapshot timedOutSnapshot = new()
+                {
+                    SessionTitle = "Approval timed out",
+                    SessionDetail = $"Connection to {device?.Name ?? $"{ip}:{port}"} timed out while waiting for policy {normalizedApprovalMode}.",
+                    Status = "Timed Out",
+                    QualityPercent = 0,
+                    QualitySummary = "Approval timed out"
+                };
+                PublishLog("Connection Timed Out", $"Connection to {device?.Name ?? $"{ip}:{port}"} timed out under policy {normalizedApprovalMode}.", approvalLogCategory);
+                PublishSnapshot(timedOutSnapshot);
+                return;
+            }
+
+            string? expectedThumbprint = GetExpectedTrustedThumbprint(device);
+            var session = await _tcpManager.ConnectAsync(ip, port, expectedThumbprint, cancellationToken).ConfigureAwait(false);
             PublishLog("Connection Established", $"Connected to {ip}:{port}. Session ID: {session.SessionId[..8]}", "TCP Connected");
         }
         catch (Exception ex)
@@ -574,11 +650,13 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             PublishLog("Connection Failed", $"Unable to connect to {ip}:{port}. {ex.Message}", "TCP Error");
             PublishSnapshot(new ConnectionSnapshot
             {
-                SessionTitle = "Connection failed",
-                SessionDetail = $"Unable to connect to {device?.Name ?? $"{ip}:{port}"}. {ex.Message}",
-                Status = "Failed",
+                SessionTitle = isReconnect ? "Reconnect pending" : "Connection failed",
+                SessionDetail = isReconnect
+                    ? $"{device?.Name ?? $"{ip}:{port}"} 장치 재연결이 실패했습니다. 다음 시도를 준비합니다. {ex.Message}"
+                    : $"Unable to connect to {device?.Name ?? $"{ip}:{port}"}. {ex.Message}",
+                Status = isReconnect ? "Reconnecting" : "Failed",
                 QualityPercent = 0,
-                QualitySummary = "TCP error"
+                QualitySummary = isReconnect ? "Reconnect attempt failed" : "TCP error"
             });
         }
     }
@@ -589,6 +667,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _receivedFrameCount = 0;
         _viewerClosedByUser = false;
         _userInitiatedDisconnect = false;
+        _reconnectCts?.Cancel();
         session.OnMessageReceived += HandleIncomingMessage;
         PublishLog("Session Connected", $"Session {session.SessionId[..8]} is active.", "Network");
         
@@ -601,18 +680,19 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                 var existingMeta = _devicePreferenceStore.Load().DeviceMetadata;
                 if (existingMeta.TryGetValue(_lastRequestedDevice.InternalGuid, out var meta) && !string.IsNullOrEmpty(meta.TrustedThumbprint))
                 {
-                    if (meta.TrustedThumbprint != thumbprint)
-                    {
-                        PublishLog("Security Alert", "인증서 지문이 이전에 저장된 정보와 일치하지 않습니다! (MITM 위험)", "Security");
-                    }
-                    else
-                    {
-                        PublishLog("Security Verified", "인증서 지문이 확인되었습니다.", "Security");
-                    }
+                    PublishLog("Security Verified", "인증서 지문이 확인되었습니다.", "Security");
                 }
                 else
                 {
                     _devicePreferenceStore.UpdateDeviceTrustedThumbprint(_lastRequestedDevice.InternalGuid, thumbprint);
+                    if (_deviceMetadataMap.TryGetValue(_lastRequestedDevice.InternalGuid, out DevicePreferenceStore.DeviceMetadata? currentMetadata))
+                    {
+                        _deviceMetadataMap[_lastRequestedDevice.InternalGuid] = currentMetadata with { TrustedThumbprint = thumbprint };
+                    }
+                    else
+                    {
+                        _deviceMetadataMap[_lastRequestedDevice.InternalGuid] = new DevicePreferenceStore.DeviceMetadata(null, null, thumbprint);
+                    }
                     PublishLog("Security Information", "새로운 장치의 인증서 지문을 신뢰할 수 있는 것으로 등록했습니다.", "Security");
                 }
             }
@@ -626,6 +706,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             QualityPercent = 85,
             QualitySummary = "Session active"
         });
+        PersistLastKnownConnection(_lastRequestedDevice);
         RecordRecentConnection(_lastRequestedDevice);
         TryStartClipboardSyncLoop();
         TryStartCursorSyncLoop();
@@ -756,8 +837,8 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         else if (packetType == FileChunkPacketType)
         {
             ReadOnlyMemory<byte> chunkData = payload.Slice(1);
-            string destination = string.IsNullOrWhiteSpace(_receivingFilePath) 
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "RemotePCControl", "ReceivedFile.dat")
+            string destination = string.IsNullOrWhiteSpace(_receivingFilePath)
+                ? GetFallbackDownloadPath()
                 : _receivingFilePath;
             _ = _fileTransferService.ReceiveFileChunkAsync(destination, chunkData, default);
             
@@ -766,6 +847,10 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             {
                 double progress = (double)_receivedBytes * 100 / _receivingFileSize;
                 FileTransferProgressChanged?.Invoke(progress);
+                if (_receivedBytes >= _receivingFileSize)
+                {
+                    PublishLog("File Transfer Completed", $"파일 수신이 완료되었습니다: {destination}", "File Inbound");
+                }
             }
         }
         else if (packetType == FileMetaPacketType && payload.Length > 13) // Header(1) + NameLen(4) + Name(?) + Size(8)
@@ -775,21 +860,17 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             _receivingFileSize = BitConverter.ToInt64(payload.Span.Slice(5 + nameLength, 8));
             _receivedBytes = 0;
 
-            string downloadFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "RemotePCControl");
-            _receivingFilePath = Path.Combine(downloadFolder, fileName);
+            string sanitizedFileName = SanitizeFileName(fileName);
+            _receivingFilePath = ResolveUniqueDownloadPath(sanitizedFileName);
             
-            // 기존 파일이 있으면 삭제 (새로 시작)
-            if (File.Exists(_receivingFilePath)) File.Delete(_receivingFilePath);
-            
-            PublishLog("File Transfer Started", $"Receiving file: {fileName} ({_receivingFileSize / 1024} KB)", "File Inbound");
+            PublishLog("File Transfer Started", $"Receiving file: {sanitizedFileName} ({_receivingFileSize / 1024} KB)", $"File Inbound / Destination={_receivingFilePath}");
             FileTransferProgressChanged?.Invoke(0.0);
         }
         else if (packetType == FileDownloadRequestPacketType && payload.Length > 5)
         {
             int pathLength = BitConverter.ToInt32(payload.Span.Slice(1, 4));
             string remotePath = Encoding.UTF8.GetString(payload.Span.Slice(5, pathLength));
-            _ = _fileTransferService.SendFileWithMetaAsync(remotePath, session, FileMetaPacketType, FileChunkPacketType, default);
-            PublishLog("Download Requested", $"Remote side requested to download: {remotePath}", "File Outbound");
+            _ = HandleRemoteDownloadRequestAsync(remotePath, session);
         }
         else if (packetType == CursorShapePacketType && payload.Length >= 2)
         {
@@ -814,12 +895,26 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         {
             int jsonLength = BitConverter.ToInt32(payload.Span.Slice(1, 4));
             string json = Encoding.UTF8.GetString(payload.Span.Slice(5, jsonLength));
-            // 이곳에서 수신한 JSON 데이터를 UI 또는 상태로 전달할 수 있습니다.
             FileSystemListReceived?.Invoke(json);
-            
-            // 개발용 로그 기록
+
             Debug.WriteLine($"[RealRemoteSessionService] FS List Response: {json[..Math.Min(json.Length, 100)]}...");
-            PublishLog("FS List Received", "Redirected drive data received from client.", "FileSystem");
+
+            try
+            {
+                FileSystemListResponse? response = JsonSerializer.Deserialize<FileSystemListResponse>(json);
+                if (response?.IsSuccess == true)
+                {
+                    PublishLog("FS List Received", $"Redirected drive data received from client. Entries: {response.Entries.Count}", "FileSystem");
+                }
+                else
+                {
+                    PublishLog("FS List Failed", response?.ErrorMessage ?? "Unknown file system error.", "FileSystem");
+                }
+            }
+            catch (Exception ex)
+            {
+                PublishLog("FS List Failed", $"Unable to parse file system response. {ex.Message}", "FileSystem");
+            }
         }
         else if (packetType == ClipboardTextPacketType)
         {
@@ -906,7 +1001,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             QualitySummary = ex is null ? "No active connection" : "Transport failure"
         });
 
-        if (_autoReconnectEnabled && !_userInitiatedDisconnect && !_isDisposed)
+        if (_autoReconnectEnabled && !_userInitiatedDisconnect && !_isDisposed && ex is not null)
         {
             _ = TryReconnectAsync();
         }
@@ -933,6 +1028,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
 
         _recentConnections.Clear();
         _recentConnections.AddRange(snapshot.RecentConnections.OrderByDescending(entry => entry.LastConnectedAt));
+        _lastKnownConnection = snapshot.LastKnownConnection;
     }
 
     private void PersistPreferences()
@@ -940,7 +1036,8 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _devicePreferenceStore.Save(new DevicePreferenceStore.DevicePreferenceSnapshot(
             _favoriteDeviceInternalGuids.ToArray(),
             _recentConnections.ToArray(),
-            _deviceMetadataMap));
+            _deviceMetadataMap,
+            _lastKnownConnection));
     }
 
     private void UpsertDevice(DeviceModel device)
@@ -983,6 +1080,159 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         RecentConnectionsChanged?.Invoke();
     }
 
+    private bool IsPreApprovedDevice(DeviceModel? device)
+    {
+        if (device is null)
+        {
+            return false;
+        }
+
+        return device.IsFavorite || _favoriteDeviceInternalGuids.Contains(device.InternalGuid) || _devicePreferenceStore.IsFavoriteDevice(device.InternalGuid);
+    }
+
+    private string? GetExpectedTrustedThumbprint(DeviceModel? device)
+    {
+        if (device is null)
+        {
+            return null;
+        }
+
+        if (_deviceMetadataMap.TryGetValue(device.InternalGuid, out DevicePreferenceStore.DeviceMetadata? metadata) &&
+            !string.IsNullOrWhiteSpace(metadata.TrustedThumbprint))
+        {
+            return metadata.TrustedThumbprint;
+        }
+
+        DevicePreferenceStore.DevicePreferenceSnapshot snapshot = _devicePreferenceStore.Load();
+        if (snapshot.DeviceMetadata.TryGetValue(device.InternalGuid, out DevicePreferenceStore.DeviceMetadata? persistedMetadata) &&
+            !string.IsNullOrWhiteSpace(persistedMetadata.TrustedThumbprint))
+        {
+            return persistedMetadata.TrustedThumbprint;
+        }
+
+        return null;
+    }
+
+    private void PersistLastKnownConnection(DeviceModel? device)
+    {
+        if (device is null || string.IsNullOrWhiteSpace(_lastRequestedAddress) || _lastRequestedPort <= 0)
+        {
+            return;
+        }
+
+        // 마지막으로 정상 연결된 엔드포인트를 저장해 두면 탐색 실패 상황에서도 재연결 시 우선 활용할 수 있습니다.
+        _lastKnownConnection = new DevicePreferenceStore.LastKnownConnectionInfo(
+            device.InternalGuid,
+            device.Name,
+            device.DeviceCode,
+            _lastApprovalMode,
+            _lastRequestedAddress,
+            _lastRequestedPort,
+            DateTime.Now);
+        PersistPreferences();
+    }
+
+    private (DeviceModel? Device, string Address, int Port, string Reason)? ResolveReconnectTarget()
+    {
+        if (!string.IsNullOrWhiteSpace(_lastRequestedIdentifier))
+        {
+            DeviceResolutionResult resolution = ResolveDevice(_lastRequestedIdentifier);
+            if (resolution.Status == DeviceResolutionStatus.SingleMatch && resolution.ResolvedDevice is not null)
+            {
+                DeviceModel resolvedDevice = resolution.ResolvedDevice;
+                DeviceEndpoint? selectedEndpoint = resolvedDevice.Endpoints.FirstOrDefault(endpoint => endpoint.Scope == DeviceEndpointScope.Local)
+                    ?? resolvedDevice.Endpoints.FirstOrDefault();
+                if (selectedEndpoint is not null)
+                {
+                    return (resolvedDevice, selectedEndpoint.Address, selectedEndpoint.Port, "Discovery");
+                }
+            }
+        }
+
+        if (_lastKnownConnection is not null && !string.IsNullOrWhiteSpace(_lastKnownConnection.Address) && _lastKnownConnection.Port > 0)
+        {
+            DeviceModel? fallbackDevice = !string.IsNullOrWhiteSpace(_lastKnownConnection.DeviceInternalGuid)
+                && _devices.TryGetValue(_lastKnownConnection.DeviceInternalGuid, out DeviceModel? persistedDevice)
+                    ? persistedDevice
+                    : null;
+            return (fallbackDevice, _lastKnownConnection.Address, _lastKnownConnection.Port, "LastKnownGood");
+        }
+
+        return null;
+    }
+
+    private async Task HandleRemoteDownloadRequestAsync(string remotePath, TcpSession session)
+    {
+        try
+        {
+            PublishLog("Download Requested", $"Remote side requested to download: {remotePath}", "File Outbound");
+            await _fileTransferService
+                .SendFileWithMetaAsync(remotePath, session, FileMetaPacketType, FileChunkPacketType, default)
+                .ConfigureAwait(false);
+            PublishLog("Download Sent", $"Remote file download completed: {remotePath}", "File Outbound");
+        }
+        catch (FileNotFoundException ex)
+        {
+            PublishLog("Download Failed", $"다운로드 요청 파일을 찾을 수 없습니다: {remotePath}", $"File Outbound / {ex.GetType().Name}");
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            PublishLog("Download Failed", $"다운로드 요청 파일에 접근할 수 없습니다: {remotePath}", $"File Outbound / {ex.GetType().Name}");
+        }
+        catch (OperationCanceledException)
+        {
+            PublishLog("Download Cancelled", $"다운로드 전송이 취소되었습니다: {remotePath}", "File Outbound");
+        }
+        catch (Exception ex)
+        {
+            PublishLog("Download Failed", $"다운로드 전송 중 오류가 발생했습니다: {remotePath}. {ex.Message}", $"File Outbound / {ex.GetType().Name}");
+        }
+    }
+
+    private static string SanitizeFileName(string fileName)
+    {
+        string candidate = string.IsNullOrWhiteSpace(fileName) ? "ReceivedFile.dat" : Path.GetFileName(fileName);
+        char[] invalidChars = Path.GetInvalidFileNameChars();
+        StringBuilder builder = new(candidate.Length);
+        foreach (char ch in candidate)
+        {
+            builder.Append(invalidChars.Contains(ch) ? '_' : ch);
+        }
+
+        string sanitized = builder.ToString().Trim();
+        return string.IsNullOrWhiteSpace(sanitized) ? "ReceivedFile.dat" : sanitized;
+    }
+
+    private static string ResolveUniqueDownloadPath(string fileName)
+    {
+        Directory.CreateDirectory(DownloadFolderPath);
+        string sanitizedFileName = SanitizeFileName(fileName);
+        string extension = Path.GetExtension(sanitizedFileName);
+        string baseName = Path.GetFileNameWithoutExtension(sanitizedFileName);
+        string candidatePath = Path.Combine(DownloadFolderPath, sanitizedFileName);
+
+        if (!File.Exists(candidatePath))
+        {
+            return candidatePath;
+        }
+
+        for (int suffix = 1; suffix <= 9999; suffix++)
+        {
+            string nextCandidate = Path.Combine(DownloadFolderPath, $"{baseName} ({suffix}){extension}");
+            if (!File.Exists(nextCandidate))
+            {
+                return nextCandidate;
+            }
+        }
+
+        return Path.Combine(DownloadFolderPath, $"{baseName}_{DateTime.Now:yyyyMMddHHmmss}{extension}");
+    }
+
+    private static string GetFallbackDownloadPath()
+    {
+        return ResolveUniqueDownloadPath("ReceivedFile.dat");
+    }
+
     private void TryStartClipboardSyncLoop()
     {
         if (!_isClipboardSyncEnabled || _currentSession is null || _clipboardSyncCts is not null || _isDisposed)
@@ -1018,13 +1268,25 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                 }
 
                 string clipboardText = _clipboardSyncService.GetText();
-                if (!string.IsNullOrWhiteSpace(clipboardText) &&
-                    !string.Equals(clipboardText, _lastSentClipboardText, StringComparison.Ordinal) &&
-                    !string.Equals(clipboardText, _lastAppliedClipboardText, StringComparison.Ordinal))
+                string validationReason = string.Empty;
+                bool isClipboardTextValid = !string.IsNullOrWhiteSpace(clipboardText) && TryValidateClipboardText(clipboardText, out validationReason);
+                if (isClipboardTextValid)
                 {
-                    await SendClipboardTextAsync(session, clipboardText, cancellationToken).ConfigureAwait(false);
-                    _lastSentClipboardText = clipboardText;
-                    PublishLog("Clipboard Synced (Text)", $"텍스트 클립보드가 전송되었습니다.", "Clipboard Outbound");
+                    if (string.Equals(clipboardText, _lastSentClipboardText, StringComparison.Ordinal) ||
+                        string.Equals(clipboardText, _lastAppliedClipboardText, StringComparison.Ordinal))
+                    {
+                        PublishLog("Clipboard Skipped", "동일한 텍스트 클립보드가 이미 전송되었거나 수신 적용되어 재전송을 건너뜁니다.", "Clipboard / Text / Skipped");
+                    }
+                    else
+                    {
+                        await SendClipboardTextAsync(session, clipboardText, cancellationToken).ConfigureAwait(false);
+                        _lastSentClipboardText = clipboardText;
+                        PublishLog("Clipboard Sent", "텍스트 클립보드가 전송되었습니다.", "Clipboard / Text / Sent");
+                    }
+                }
+                else if (!string.IsNullOrWhiteSpace(clipboardText))
+                {
+                    PublishLog("Clipboard Skipped", $"텍스트 클립보드 전송을 건너뜁니다. {validationReason}", "Clipboard / Text / Skipped");
                 }
                 else
                 {
@@ -1037,7 +1299,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                         {
                             await SendClipboardImageAsync(session, imageBytes, cancellationToken).ConfigureAwait(false);
                             _lastSentClipboardImageHash = imageHash;
-                            PublishLog("Clipboard Synced (Image)", $"이미지 클립보드가 전송되었습니다. ({imageBytes.Length / 1024} KB)", "Clipboard Outbound");
+                            PublishLog("Clipboard Synced (Image)", $"이미지 클립보드가 전송되었습니다. ({imageBytes.Length / 1024} KB)", "Clipboard / Image / Sent");
                         }
                     }
                     else
@@ -1065,7 +1327,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
 
                             string json = JsonSerializer.Serialize(metaList);
                             await _currentSession!.SendAsync(Combine([ClipboardFilesPacketType], Encoding.UTF8.GetBytes(json)), cancellationToken).ConfigureAwait(false);
-                            PublishLog("Clipboard Files", $"클립보드에 {files.Length}개의 파일이 복사되어 동기화를 준비합니다.", "Clipboard Outbound");
+                            PublishLog("Clipboard Files", $"클립보드에 {files.Length}개의 파일이 복사되어 동기화를 준비합니다.", "Clipboard / Files / Sent");
                         }
                     }
                 }
@@ -1079,7 +1341,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         catch (Exception ex)
         {
             Debug.WriteLine($"[RealRemoteSessionService] Clipboard sync loop error: {ex.Message}");
-            PublishLog("Clipboard Sync Error", $"클립보드 동기화 루프 중 오류가 발생했습니다. {ex.Message}", "Clipboard");
+            PublishLog("Clipboard Sync Error", $"클립보드 동기화 루프 중 오류가 발생했습니다. {ex.Message}", "Clipboard / Error");
         }
         finally
         {
@@ -1183,12 +1445,19 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         catch (Exception ex)
         {
             Debug.WriteLine($"[RealRemoteSessionService] Clipboard payload decode error: {ex.Message}");
-            PublishLog("Clipboard Sync Error", $"수신 클립보드 텍스트를 해석하지 못했습니다. {ex.Message}", "Clipboard");
+            PublishLog("Clipboard Sync Error", $"수신 클립보드 텍스트를 해석하지 못했습니다. {ex.Message}", "Clipboard / Text / Error");
             return;
         }
 
         if (string.IsNullOrWhiteSpace(clipboardText))
         {
+            PublishLog("Clipboard Skipped", "비어 있는 텍스트 클립보드 payload를 수신하여 적용을 건너뜁니다.", "Clipboard / Text / Skipped");
+            return;
+        }
+
+        if (!TryValidateClipboardText(clipboardText, out string validationReason))
+        {
+            PublishLog("Clipboard Skipped", $"수신 텍스트 클립보드 적용을 건너뜁니다. {validationReason}", "Clipboard / Text / Skipped");
             return;
         }
 
@@ -1196,13 +1465,14 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         if (string.Equals(currentClipboardText, clipboardText, StringComparison.Ordinal))
         {
             _lastAppliedClipboardText = clipboardText;
+            PublishLog("Clipboard Skipped", "동일한 텍스트 클립보드가 이미 로컬에 존재하여 적용을 건너뜁니다.", "Clipboard / Text / Skipped");
             return;
         }
 
         _clipboardSyncService.SetText(clipboardText);
         _lastAppliedClipboardText = clipboardText;
         _lastSentClipboardText = clipboardText;
-        PublishLog("Clipboard Received", $"텍스트 클립보드가 {_lastRequestedDevice?.Name ?? "현재 세션"}에서 동기화되었습니다.", "Clipboard Inbound");
+        PublishLog("Clipboard Received", $"텍스트 클립보드가 {_lastRequestedDevice?.Name ?? "현재 세션"}에서 동기화되었습니다.", "Clipboard / Text / Received");
     }
 
     private void HandleIncomingClipboardImage(ReadOnlyMemory<byte> payload)
@@ -1224,8 +1494,26 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         {
             _lastAppliedClipboardImageHash = imageHash;
             _clipboardSyncService.SetImageFromPng(imageBytes);
-            PublishLog("Clipboard Received (Image)", $"이미지 클립보드가 수신되어 적용되었습니다. ({imageBytes.Length / 1024} KB)", "Clipboard Inbound");
+            PublishLog("Clipboard Received (Image)", $"이미지 클립보드가 수신되어 적용되었습니다. ({imageBytes.Length / 1024} KB)", "Clipboard / Image / Received");
         });
+    }
+
+    private static bool TryValidateClipboardText(string clipboardText, out string reason)
+    {
+        if (string.IsNullOrWhiteSpace(clipboardText))
+        {
+            reason = "빈 텍스트입니다.";
+            return false;
+        }
+
+        if (clipboardText.Length > MaxClipboardTextLength)
+        {
+            reason = $"텍스트 길이가 제한({MaxClipboardTextLength}자)를 초과했습니다.";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
     }
 
     private static ConnectionSnapshot CreateApprovalDeniedSnapshot(string title, string detail, string qualitySummary)
@@ -1242,16 +1530,23 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
 
     private static ConnectionSnapshot CreatePendingApprovalSnapshot(string targetAddress, int targetPort, string approvalMode)
     {
-        bool requiresInteractiveApproval = approvalMode is "User approval" or "Support request";
+        bool requiresInteractiveApproval = ApprovalService.RequiresInteractiveApproval(approvalMode);
+        bool isSupportRequest = approvalMode == "Support request";
         return new ConnectionSnapshot
         {
-            SessionTitle = requiresInteractiveApproval ? "Waiting for approval" : "Network Handshake",
+            SessionTitle = requiresInteractiveApproval
+                ? isSupportRequest ? "Waiting for support approval" : "Waiting for approval"
+                : "Network Handshake",
             SessionDetail = requiresInteractiveApproval
-                ? $"{approvalMode} 정책에 따라 세션 승인을 기다리는 중입니다. 대상: {targetAddress}:{targetPort}"
+                ? isSupportRequest
+                    ? $"지원 요청 정책에 따라 세션 승인을 기다리는 중입니다. 대상: {targetAddress}:{targetPort}"
+                    : $"{approvalMode} 정책에 따라 세션 승인을 기다리는 중입니다. 대상: {targetAddress}:{targetPort}"
                 : $"TCP socket connection requested: {targetAddress}:{targetPort}",
             Status = requiresInteractiveApproval ? "Pending Approval" : "Connecting",
             QualityPercent = requiresInteractiveApproval ? 20 : 50,
-            QualitySummary = requiresInteractiveApproval ? "Approval requested" : "Awaiting socket connection"
+            QualitySummary = requiresInteractiveApproval
+                ? isSupportRequest ? "Support approval requested" : "Approval requested"
+                : "Awaiting socket connection"
         };
     }
 
@@ -1348,65 +1643,113 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
 
     private async Task TryReconnectAsync()
     {
-        if (_isReconnectInProgress || string.IsNullOrWhiteSpace(_lastRequestedIdentifier))
+        if (string.IsNullOrWhiteSpace(_lastRequestedIdentifier) && _lastKnownConnection is null)
         {
             return;
         }
 
-        _isReconnectInProgress = true;
+        if (Interlocked.CompareExchange(ref _isReconnectInProgress, 1, 0) != 0)
+        {
+            return;
+        }
+
         _reconnectCts?.Cancel();
         _reconnectCts?.Dispose();
         _reconnectCts = new CancellationTokenSource();
         CancellationToken cancellationToken = _reconnectCts.Token;
+        DateTime reconnectStartedAt = DateTime.UtcNow;
 
         try
         {
-            for (int attempt = 1; attempt <= 3; attempt++)
+            for (int attempt = 1; attempt <= MaxReconnectAttempts; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                PublishLog("Reconnect Attempt", $"Attempting reconnect #{attempt} for {_lastRequestedIdentifier}.", "Reconnect");
-                await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken).ConfigureAwait(false);
-
-                DeviceResolutionResult resolution = ResolveDevice(_lastRequestedIdentifier);
-                if (resolution.Status != DeviceResolutionStatus.SingleMatch || resolution.ResolvedDevice is null)
+                TimeSpan delay = GetReconnectDelay(attempt);
+                string targetLabel = _lastRequestedIdentifier ?? _lastKnownConnection?.DeviceCode ?? "unknown target";
+                PublishSnapshot(new ConnectionSnapshot
                 {
-                    PublishLog("Reconnect Failed", $"Unable to resolve {_lastRequestedIdentifier} during reconnect.", "Reconnect");
+                    SessionTitle = "Reconnecting",
+                    SessionDetail = $"{targetLabel} 장치에 대해 자동 재연결을 시도합니다. {attempt}/{MaxReconnectAttempts}회, 대기 {delay.TotalSeconds:0}초",
+                    Status = "Reconnecting",
+                    QualityPercent = 15,
+                    QualitySummary = $"Reconnect attempt {attempt}/{MaxReconnectAttempts}"
+                });
+                PublishLog("Reconnect Attempt", $"Attempting reconnect #{attempt} for {targetLabel} after {delay.TotalSeconds:0}s backoff.", $"Reconnect / Delay={delay.TotalSeconds:0}s");
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+
+                if (DateTime.UtcNow - reconnectStartedAt > MaxReconnectWindow)
+                {
+                    PublishLog("Reconnect Exhausted", $"Reconnect window exceeded for {targetLabel}.", "Reconnect / WindowExpired");
+                    PublishSnapshot(new ConnectionSnapshot
+                    {
+                        SessionTitle = "Reconnect failed",
+                        SessionDetail = $"{targetLabel} 장치에 대한 자동 재연결 제한 시간을 초과했습니다. 수동 연결을 진행해 주세요.",
+                        Status = "Failed",
+                        QualityPercent = 0,
+                        QualitySummary = "Reconnect window expired"
+                    });
+                    return;
+                }
+
+                var reconnectTarget = ResolveReconnectTarget();
+                if (reconnectTarget is null)
+                {
+                    PublishLog("Reconnect Failed", $"Unable to resolve reconnect target for {targetLabel}.", "Reconnect / ResolutionFailed");
                     continue;
                 }
 
-                _lastRequestedDevice = resolution.ResolvedDevice;
-                DeviceEndpoint? selectedEndpoint = resolution.ResolvedDevice.Endpoints.FirstOrDefault(endpoint => endpoint.Scope == DeviceEndpointScope.Local)
-                    ?? resolution.ResolvedDevice.Endpoints.FirstOrDefault();
-                if (selectedEndpoint is null)
-                {
-                    continue;
-                }
+                _lastRequestedDevice = reconnectTarget.Value.Device ?? _lastRequestedDevice;
+                _lastRequestedAddress = reconnectTarget.Value.Address;
+                _lastRequestedPort = reconnectTarget.Value.Port;
 
                 await ConnectToTargetAsync(
-                    selectedEndpoint.Address,
-                    selectedEndpoint.Port,
-                    resolution.ResolvedDevice,
+                    reconnectTarget.Value.Address,
+                    reconnectTarget.Value.Port,
+                    reconnectTarget.Value.Device ?? _lastRequestedDevice,
                     _lastApprovalMode,
                     isReconnect: true,
                     cancellationToken).ConfigureAwait(false);
 
                 if (_currentSession is not null)
                 {
-                    PublishLog("Reconnect Succeeded", $"Reconnected to {_lastRequestedIdentifier}.", "Reconnect");
+                    PublishLog("Reconnect Succeeded", $"Reconnected to {targetLabel} via {reconnectTarget.Value.Reason}.", $"Reconnect / Source={reconnectTarget.Value.Reason}");
                     return;
                 }
             }
 
-            PublishLog("Reconnect Exhausted", $"Reconnect attempts exceeded for {_lastRequestedIdentifier}.", "Reconnect");
+            string exhaustedTarget = _lastRequestedIdentifier ?? _lastKnownConnection?.DeviceCode ?? "unknown target";
+            PublishLog("Reconnect Exhausted", $"Reconnect attempts exceeded for {exhaustedTarget}.", "Reconnect / AttemptsExceeded");
+            PublishSnapshot(new ConnectionSnapshot
+            {
+                SessionTitle = "Reconnect failed",
+                SessionDetail = $"{exhaustedTarget} 장치에 대한 자동 재연결 시도가 모두 실패했습니다. 네트워크 상태를 확인한 뒤 다시 연결해 주세요.",
+                Status = "Failed",
+                QualityPercent = 0,
+                QualitySummary = "Reconnect attempts exhausted"
+            });
         }
         catch (OperationCanceledException)
         {
             PublishLog("Reconnect Cancelled", "Reconnect workflow was cancelled.", "Reconnect");
+            PublishSnapshot(new ConnectionSnapshot
+            {
+                SessionTitle = "Reconnect cancelled",
+                SessionDetail = "자동 재연결이 취소되었습니다. 사용자가 세션을 종료했거나 새 연결 흐름이 시작되었습니다.",
+                Status = "Idle",
+                QualityPercent = 0,
+                QualitySummary = "Reconnect cancelled"
+            });
         }
         finally
         {
-            _isReconnectInProgress = false;
+            Interlocked.Exchange(ref _isReconnectInProgress, 0);
         }
+    }
+
+    private static TimeSpan GetReconnectDelay(int attempt)
+    {
+        int seconds = (int)Math.Min(Math.Pow(2, attempt - 1), MaxReconnectDelay.TotalSeconds);
+        return TimeSpan.FromSeconds(seconds);
     }
 
     private Int32Rect? GetSelectedViewerBounds()

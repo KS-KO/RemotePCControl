@@ -1,8 +1,10 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Windows;
 using RemotePCControl.App.Infrastructure;
 using RemotePCControl.App.Models;
@@ -65,6 +67,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private int _manualRegisterPort = 9999;
     private bool _isEditPanelVisible;
     private bool _isRemoteInputBlocked;
+    private Views.RemoteFileBrowserWindow? _remoteFileBrowserWindow;
 
     public MainViewModel(IRemoteSessionService remoteSessionService, ResourceMonitorService resourceMonitorService)
     {
@@ -603,19 +606,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async void DownloadFile()
+    private void DownloadFile()
     {
-        // 실제 운영 환경에서는 원격 파일 브라우저가 필요하지만, 
-        // 현 단계에서는 데모를 위해 고정된 경로를 가정하거나 루프백 테스트용으로 사용합니다.
-        string remotePath = "C:\\Windows\\win.ini"; // 테스트 샘플 파일
-        
         try
         {
-            TransferSummary = $"Requesting download: {remotePath}...";
-            await _remoteSessionService.DownloadFileAsync(remotePath);
-            LastActionSummary = "Requested remote file download";
-            StatusMessage = $"Download request sent for {remotePath}.";
-            AddLog("File Download Requested", $"원격 파일 다운로드 요청: {remotePath}", "Direction: Download Request");
+            // 운영 경로에서는 하드코딩 대신 원격 파일 브라우저를 통해 명시적으로 파일을 선택하도록 유도합니다.
+            BrowseRemoteFiles();
+            TransferSummary = "원격 파일 브라우저를 열었습니다. 다운로드할 파일을 선택해 주세요.";
+            LastActionSummary = "Opened remote file browser";
+            StatusMessage = "원격 경로를 직접 선택하는 다운로드 흐름으로 전환했습니다.";
+            AddLog("File Download Browser Opened", "하드코딩된 테스트 경로 대신 원격 파일 브라우저를 통해 다운로드 대상을 선택하도록 전환했습니다.", "Direction: Download Selection");
         }
         catch (Exception ex)
         {
@@ -625,11 +625,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void BrowseRedirectedDrives()
     {
-        // 실제로는 트리뷰나 리스트뷰로 구현하지만, 데모를 위해 루트(드라이브 목록)를 요청합니다.
         try
         {
+            if (!IsLocalDriveRedirectEnabled)
+            {
+                TransferSummary = "로컬 드라이브 리디렉션이 비활성화되어 있어 목록을 요청할 수 없습니다.";
+                LastActionSummary = "Drive redirect is disabled";
+                StatusMessage = "Local drive redirect 옵션을 먼저 활성화해 주세요.";
+                AddLog("Drive Browse Blocked", "리디렉션이 비활성화된 상태에서 드라이브 목록 요청이 차단되었습니다.", "Remote FS");
+                return;
+            }
+
             TransferSummary = "Requesting redirected drive list...";
             _remoteSessionService.RequestFileSystemList(string.Empty); // Empty means root (drives)
+            OpenOrActivateRemoteBrowser();
             LastActionSummary = "Requested redirected drive listing";
             StatusMessage = "FileSystem ListRequest sent to client.";
             AddLog("Drive Browse Requested", "상대방의 리디렉션된 드라이브 목록을 요청했습니다.", "Remote FS");
@@ -644,18 +653,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
+            if (!IsLocalDriveRedirectEnabled)
+            {
+                TransferSummary = "원격 파일 탐색을 열 수 없습니다. Local drive redirect가 꺼져 있습니다.";
+                LastActionSummary = "Drive redirect is disabled";
+                StatusMessage = "Local drive redirect 옵션을 켠 뒤 다시 시도해 주세요.";
+                AddLog("Remote Explorer Blocked", "리디렉션이 비활성화되어 원격 파일 브라우저를 열지 않았습니다.", "Remote FS");
+                return;
+            }
+
             // 루트 목록 요청
             _remoteSessionService.RequestFileSystemList(string.Empty);
-            
-            // 창 열기 (이미 구현된 RemoteFileBrowserWindow가 있다고 가정)
-            // 실제 배포 시에는 MVVM Window Service를 사용해야 하지만, 초기 프로토타입은 직접 생성
-            Application.Current.Dispatcher.Invoke(() =>
-            {
-                var browser = new Views.RemoteFileBrowserWindow();
-                browser.DataContext = this;
-                browser.Show();
-            });
-            
+            OpenOrActivateRemoteBrowser();
             AddLog("Remote Explorer", "원격 장치의 파일 탐색기 창을 열었습니다.", "Remote FS");
         }
         catch (Exception ex)
@@ -810,24 +819,28 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             try
             {
-                var entries = System.Text.Json.JsonSerializer.Deserialize<List<FileEntry>>(json);
-                if (entries == null) return;
+                FileSystemListResponse? response = JsonSerializer.Deserialize<FileSystemListResponse>(json);
+                if (response is null)
+                {
+                    TransferSummary = "파일 시스템 응답을 읽을 수 없습니다.";
+                    return;
+                }
+
+                if (!response.IsSuccess)
+                {
+                    TransferSummary = $"파일 시스템 요청 실패: {response.ErrorMessage}";
+                    StatusMessage = response.ErrorMessage ?? "원격 파일 시스템 요청이 실패했습니다.";
+                    AddLog("FS List Failed", response.ErrorMessage ?? "원격 파일 시스템 요청이 실패했습니다.", $"Remote FS / Path: {response.CurrentPath}");
+                    return;
+                }
 
                 RemoteFiles.Clear();
-                foreach (var entry in entries.OrderByDescending(e => e.IsDirectory).ThenBy(e => e.Name))
+                foreach (var entry in response.Entries.OrderByDescending(e => e.IsDirectory).ThenBy(e => e.Name))
                 {
                     RemoteFiles.Add(entry);
                 }
 
-                if (entries.Count > 0)
-                {
-                    string? firstPath = entries[0].Path;
-                    if (!string.IsNullOrEmpty(firstPath))
-                    {
-                        int lastSlash = firstPath.LastIndexOfAny(['\\', '/']);
-                        CurrentRemotePath = lastSlash > 0 ? firstPath[..lastSlash] : string.Empty;
-                    }
-                }
+                CurrentRemotePath = response.CurrentPath;
                 TransferSummary = $"Remote directory listing updated. ({RemoteFiles.Count} items)";
             }
             catch (Exception ex)
@@ -835,6 +848,30 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 Debug.WriteLine($"[MainViewModel] FS List processing error: {ex.Message}");
                 TransferSummary = $"Error parsing FS list: {ex.Message}";
             }
+        });
+    }
+
+    private void OpenOrActivateRemoteBrowser()
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            if (_remoteFileBrowserWindow is { IsLoaded: true })
+            {
+                if (_remoteFileBrowserWindow.WindowState == WindowState.Minimized)
+                {
+                    _remoteFileBrowserWindow.WindowState = WindowState.Normal;
+                }
+
+                _remoteFileBrowserWindow.Activate();
+                return;
+            }
+
+            _remoteFileBrowserWindow = new Views.RemoteFileBrowserWindow
+            {
+                DataContext = this
+            };
+            _remoteFileBrowserWindow.Closed += (_, _) => _remoteFileBrowserWindow = null;
+            _remoteFileBrowserWindow.Show();
         });
     }
     private string BuildTransferSummary()
