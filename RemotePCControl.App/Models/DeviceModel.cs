@@ -9,7 +9,21 @@ public sealed class DeviceModel : ObservableObject
     private bool _isFavorite;
     private string _lastSeenLabel = "Last seen: unknown";
 
-    public required string Name { get; init; }
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+    private string? _trustedThumbprint;
+
+    public string? TrustedThumbprint
+    {
+        get => _trustedThumbprint;
+        set => SetProperty(ref _trustedThumbprint, value);
+    }
+
+    public required string Name
+    {
+        get => _name;
+        set => SetProperty(ref _name, value);
+    }
 
     public required string DeviceId { get; init; }
 
@@ -17,7 +31,11 @@ public sealed class DeviceModel : ObservableObject
 
     public required string InternalGuid { get; init; }
 
-    public required string Description { get; init; }
+    public required string Description
+    {
+        get => _description;
+        set => SetProperty(ref _description, value);
+    }
 
     public required List<DeviceEndpoint> Endpoints { get; init; }
 

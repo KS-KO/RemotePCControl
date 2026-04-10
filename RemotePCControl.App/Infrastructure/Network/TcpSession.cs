@@ -12,7 +12,10 @@ namespace RemotePCControl.App.Infrastructure.Network;
 public sealed class TcpSession : IDisposable
 {
     private readonly TcpClient _client;
-    private readonly NetworkStream _stream;
+    private readonly Stream _stream;
+    
+    public Stream Stream => _stream;
+
     private readonly CancellationTokenSource _cts = new();
     private readonly SemaphoreSlim _writeLock = new(1, 1); // 스레드 안전성 확보
     private bool _isDisposed;
@@ -23,11 +26,11 @@ public sealed class TcpSession : IDisposable
 
     public string SessionId { get; } = Guid.NewGuid().ToString("N");
 
-    public TcpSession(TcpClient client)
+    public TcpSession(TcpClient client, Stream stream)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _client.NoDelay = true; // 입력 지연 방지 (NFR-3)
-        _stream = _client.GetStream();
+        _stream = stream ?? throw new ArgumentNullException(nameof(stream));
     }
 
     public void StartReceiving()

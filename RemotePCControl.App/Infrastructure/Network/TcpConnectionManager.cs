@@ -6,6 +6,10 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.Net.Security;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
+using RemotePCControl.App.Infrastructure.Security;
 
 namespace RemotePCControl.App.Infrastructure.Network;
 
@@ -41,8 +45,7 @@ public sealed class TcpConnectionManager : IDisposable
             while (!cancellationToken.IsCancellationRequested && _listener is not null)
             {
                 var client = await _listener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-                var session = new TcpSession(client);
-                RegisterSession(session);
+                _ = HandleNewConnectionAsync(client, cancellationToken);
             }
         }
         catch (OperationCanceledException)
@@ -56,21 +59,47 @@ public sealed class TcpConnectionManager : IDisposable
         }
     }
 
+    private async Task HandleNewConnectionAsync(TcpClient client, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var sslStream = new SslStream(client.GetStream(), false);
+            var serverCert = CertificateManager.GetOrCreateSelfSignedCertificate();
+            
+            await sslStream.AuthenticateAsServerAsync(serverCert, false, SslProtocols.Tls12 | SslProtocols.Tls13, false).ConfigureAwait(false);
+            
+            var session = new TcpSession(client, sslStream);
+            RegisterSession(session);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Network] SSL Authentication failed (Server): {ex.Message}");
+            client.Dispose();
+        }
+    }
+
     public async Task<TcpSession> ConnectAsync(string ipAddress, int port, CancellationToken cancellationToken = default)
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(TcpConnectionManager));
 
         var client = new TcpClient();
+
         try
         {
             await client.ConnectAsync(ipAddress, port, cancellationToken).ConfigureAwait(false);
-            var session = new TcpSession(client);
+            
+            var sslStream = new SslStream(client.GetStream(), false, 
+                new RemoteCertificateValidationCallback((sender, certificate, chain, errors) => true)); // 자가서명 인증서 허용
+            
+            await sslStream.AuthenticateAsClientAsync(ipAddress).ConfigureAwait(false);
+
+            var session = new TcpSession(client, sslStream);
             RegisterSession(session);
             return session;
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[Network] Connection failed to {ipAddress}:{port}. Error: {ex.Message}");
+            Debug.WriteLine($"[Network] Connection/SSL failed to {ipAddress}:{port}. Error: {ex.Message}");
             client.Dispose();
             throw;
         }

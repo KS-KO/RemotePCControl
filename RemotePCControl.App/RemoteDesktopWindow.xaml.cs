@@ -31,9 +31,11 @@ public partial class RemoteDesktopWindow : Window
     private bool _keepOnSafeDisplay;
     private int _frameWidth;
     private int _frameHeight;
+    private readonly System.Windows.Threading.DispatcherTimer _resizeTimer;
 
     public event Action<int, int, InputInjectionService.MouseEventFlags>? OnMouseInputCaptured;
     public event Action<ushort, InputInjectionService.KeyEventFlags>? OnKeyboardInputCaptured;
+    public event Action<int, int>? OnResolutionRequested;
 
     public RemoteDesktopWindow(
         Int32Rect? capturedOutputBounds,
@@ -50,12 +52,19 @@ public partial class RemoteDesktopWindow : Window
         _viewerDisplayLabel = viewerDisplayLabel;
         _compressionLabel = compressionLabel;
         InitializeComponent();
+        _resizeTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(500)
+        };
+        _resizeTimer.Tick += OnResizeTimerTick;
+
         Loaded += (_, _) =>
         {
             RefreshStatusBadges();
             MoveToSafeDisplayIfNeeded();
         };
         LocationChanged += (_, _) => MoveToSafeDisplayIfNeeded();
+        SizeChanged += OnWindowSizeChanged;
     }
 
     public void SetKeepOnSafeDisplay(bool keepOnSafeDisplay)
@@ -125,6 +134,41 @@ public partial class RemoteDesktopWindow : Window
         _frameHeight = height;
         _bitmap = null;
         DesktopImage.Source = bitmapImage;
+    }
+
+    public void UpdateRemoteCursor(string cursorName, bool isVisible)
+    {
+        if (!isVisible)
+        {
+            DesktopImage.Cursor = Cursors.None;
+            return;
+        }
+
+        try
+        {
+            DesktopImage.Cursor = cursorName switch
+            {
+                "Arrow" => Cursors.Arrow,
+                "IBeam" => Cursors.IBeam,
+                "Wait" => Cursors.Wait,
+                "Cross" => Cursors.Cross,
+                "UpArrow" => Cursors.UpArrow,
+                "SizeNWSE" => Cursors.SizeNWSE,
+                "SizeNESW" => Cursors.SizeNESW,
+                "SizeWE" => Cursors.SizeWE,
+                "SizeNS" => Cursors.SizeNS,
+                "SizeAll" => Cursors.SizeAll,
+                "No" => Cursors.No,
+                "Hand" => Cursors.Hand,
+                "AppStarting" => Cursors.AppStarting,
+                "Help" => Cursors.Help,
+                _ => Cursors.Arrow
+            };
+        }
+        catch
+        {
+            DesktopImage.Cursor = Cursors.Arrow;
+        }
     }
 
     private void CalculateAndSendMouseEvent(MouseEventArgs e, InputInjectionService.MouseEventFlags flag)
@@ -255,6 +299,42 @@ public partial class RemoteDesktopWindow : Window
     {
         FocusRemoteWindow();
         SendKeyPress(VirtualKeyEscape);
+    }
+
+    private void FullscreenButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (WindowStyle == WindowStyle.None)
+        {
+            WindowStyle = WindowStyle.SingleBorderWindow;
+            WindowState = WindowState.Normal;
+            ResizeMode = ResizeMode.CanResize;
+        }
+        else
+        {
+            WindowStyle = WindowStyle.None;
+            WindowState = WindowState.Maximized;
+            ResizeMode = ResizeMode.NoResize;
+        }
+    }
+
+    private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        _resizeTimer.Stop();
+        _resizeTimer.Start();
+    }
+
+    private void OnResizeTimerTick(object? sender, EventArgs e)
+    {
+        _resizeTimer.Stop();
+        if (WindowState == WindowState.Maximized) return;
+
+        int newWidth = (int)Math.Round(DesktopImage.ActualWidth);
+        int newHeight = (int)Math.Round(DesktopImage.ActualHeight);
+
+        if (newWidth > 0 && newHeight > 0)
+        {
+            OnResolutionRequested?.Invoke(newWidth, newHeight);
+        }
     }
 
     private void SendKeyPress(ushort virtualKey)

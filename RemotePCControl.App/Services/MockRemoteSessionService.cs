@@ -1,4 +1,8 @@
 using RemotePCControl.App.Models;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace RemotePCControl.App.Services;
 
@@ -23,6 +27,18 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
     }
 
     public event Action<ConnectionSnapshot>? SessionSnapshotChanged
+    {
+        add { }
+        remove { }
+    }
+
+    public event Action<string>? FileSystemListReceived
+    {
+        add { }
+        remove { }
+    }
+
+    public event Action<double>? FileTransferProgressChanged
     {
         add { }
         remove { }
@@ -94,6 +110,14 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
     }
 
     public void SetClipboardSyncEnabled(bool enabled)
+    {
+    }
+
+    public void SetLocalDriveRedirectEnabled(bool enabled)
+    {
+    }
+
+    public void RequestFileSystemList(string path)
     {
     }
 
@@ -194,6 +218,14 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
     {
     }
 
+    public void UpdateDeviceMetadata(string internalGuid, string? customName, string? customDescription)
+    {
+    }
+
+    public void RegisterManualDevice(string ip, int port)
+    {
+    }
+
     public DuplicateCheckResult GetDuplicateCheckResult() => DuplicateCheckResult.None;
 
     public DeviceResolutionResult ResolveDevice(string identifier)
@@ -259,5 +291,31 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
     public Task UploadFileAsync(string filePath)
     {
         return Task.CompletedTask;
+    }
+
+    public Task DownloadFileAsync(string remotePath)
+    {
+        return Task.CompletedTask;
+    }
+
+    public void LockRemoteSession()
+    {
+    }
+
+    public void SetRemoteInputBlocked(bool blocked)
+    {
+    }
+
+    public void SetCtrlCopyEnabled(bool enabled)
+    {
+    }
+
+    public Task DownloadClipboardFilesAsync()
+    {
+        return Task.CompletedTask;
+    }
+
+    public void RequestResolutionChange(int width, int height)
+    {
     }
 }

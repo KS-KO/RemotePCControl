@@ -189,6 +189,117 @@ public sealed class InputInjectionService : IDisposable
         }
     }
 
+    public bool LockSession()
+    {
+        try
+        {
+            return LockWorkStation();
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[InputInjection] LockWorkStation failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    public bool SetInputBlock(bool blocked)
+    {
+        try
+        {
+            // BlockInput은 관리자 권한이 필요할 수 있습니다.
+            return BlockInput(blocked);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[InputInjection] BlockInput failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool LockWorkStation();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool BlockInput(bool fBlockIt);
+
+    [DllImport("user32.dll")]
+    private static extern int EnumDisplaySettings(string? deviceName, int modeNum, ref DEVMODE devMode);
+
+    [DllImport("user32.dll")]
+    private static extern int ChangeDisplaySettings(ref DEVMODE devMode, int flags);
+
+    private const int ENUM_CURRENT_SETTINGS = -1;
+    private const int CDS_UPDATEREGISTRY = 0x01;
+    private const int DISP_CHANGE_SUCCESSFUL = 0;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DEVMODE
+    {
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmDeviceName;
+        public short dmSpecVersion;
+        public short dmDriverVersion;
+        public short dmSize;
+        public short dmDriverExtra;
+        public int dmFields;
+        public int dmPositionX;
+        public int dmPositionY;
+        public int dmDisplayOrientation;
+        public int dmDisplayFixedOutput;
+        public short dmColor;
+        public short dmDuplex;
+        public short dmYResolution;
+        public short dmTTOption;
+        public short dmCollate;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+        public string dmFormName;
+        public short dmLogPixels;
+        public short dmBitsPerPel;
+        public int dmPelsWidth;
+        public int dmPelsHeight;
+        public int dmDisplayFlags;
+        public int dmDisplayFrequency;
+        public int dmICMMethod;
+        public int dmICMIntent;
+        public int dmMediaType;
+        public int dmDitherType;
+        public int dmReserved1;
+        public int dmReserved2;
+        public int dmPanningWidth;
+        public int dmPanningHeight;
+
+        public static DEVMODE Create()
+        {
+            return new DEVMODE { dmSize = (short)Marshal.SizeOf(typeof(DEVMODE)) };
+        }
+    }
+
+    private const int DM_PELSWIDTH = 0x00080000;
+    private const int DM_PELSHEIGHT = 0x00100000;
+
+    public bool ChangeDisplayResolution(int width, int height)
+    {
+        try
+        {
+            DEVMODE dm = DEVMODE.Create();
+            if (EnumDisplaySettings(null, ENUM_CURRENT_SETTINGS, ref dm) != 0)
+            {
+                dm.dmPelsWidth = width;
+                dm.dmPelsHeight = height;
+                dm.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT;
+
+                int result = ChangeDisplaySettings(ref dm, 0); // 0: 테스트/일시 적용
+                return result == DISP_CHANGE_SUCCESSFUL;
+            }
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[InputInjection] ChangeDisplayResolution failed: {ex.Message}");
+            return false;
+        }
+    }
+
     public void Dispose()
     {
         // P/Invoke 관련 핸들 등 외부 리소스가 추가된다면 이곳에서 해제합니다.

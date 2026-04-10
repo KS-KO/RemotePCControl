@@ -248,3 +248,23 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - Operators should be able to toggle whether a device is treated as a favorite without editing source code or seed data.
 - Favorite state and recent-connection history should persist across application restarts for the local operator profile.
 - The approval and connection flow should reuse the persisted favorite flag when evaluating `Pre-approved device` policy.
+
+## 15. Bidirectional File Transfer Development Target
+- The next implementation target after favorite device management is to complete the file transfer feature by adding a production-ready "Download" path.
+- Operators must be able to request a file from the remote PC to be downloaded to their local storage.
+- The file transfer protocol must be updated to include metadata (filename, size) before transferring chunks, and to support explicit download requests.
+- The current hardcoded "ReceivedFile.dat" destination must be replaced with a user-sanitized or operator-selected filename in a designated download folder (e.g., Downloads/RemotePCControl).
+- The UI must provide a "Download File from Remote" button that triggers a path-based or placeholder-based request flow in the loopback runtime.
+
+## 16. Local Drive Redirection Development Target
+- After completing bidirectional file transfer, the local drive redirection feature should be implemented to allow the remote system to see local drives.
+- Initial implementation will focus on a "Virtual Drive Mapping" where selected local folders or drives are exposed to the remote session.
+- The `IsLocalDriveRedirectEnabled` toggle in the UI must be wired to the data path so that the remote PC's explorer or a specialized file picker can view local files.
+- This feature requires a virtual file system bridge or a dedicated channel for directory listing and file access requests.
+- **Protocol Extension for Drive Redirection**:
+    - `0x09`: FileSystem_ListRequest (Request directory listing from the redirecting endpoint).
+    - `0x0A`: FileSystem_ListResponse (Deliver directory listing as a structured JSON payload).
+- **UI Component**:
+    - The Host side (Server) will expose a "Redirected Drives" viewer that allows browsing client-shared folders.
+    - The Viewer side (Client) will manage which local drives or folders are exposed via the `IsLocalDriveRedirectEnabled` policy.
+    - **Remote File Browser**: A dedicated UI window will be implemented to browse the remote file system, allowing users to select files for download rather than using hardcoded paths.

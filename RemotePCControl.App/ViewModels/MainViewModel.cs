@@ -1,7 +1,9 @@
 using System;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Windows;
 using RemotePCControl.App.Infrastructure;
 using RemotePCControl.App.Models;
 using RemotePCControl.App.Services;
@@ -17,9 +19,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly RelayCommand _disconnectCommand;
     private readonly RelayCommand _copyFileCommand;
     private readonly RelayCommand _uploadFileCommand;
+    private readonly RelayCommand _downloadFileCommand;
+    private readonly RelayCommand _browseRedirectedDrivesCommand;
+    private readonly RelayCommand _browseRemoteFilesCommand;
+    private readonly RelayCommand<FileEntry> _navigateIntoFolderCommand;
+    private readonly RelayCommand<FileEntry> _downloadSelectedFileCommand;
+    private readonly RelayCommand _lockRemoteSessionCommand;
+    private readonly RelayCommand _toggleRemoteInputBlockCommand;
+    private readonly IRelayCommand _pasteRemoteClipboardCommand;
     private readonly RelayCommand _toggleLocalDriveCommand;
     private readonly RelayCommand _toggleFavoriteCommand;
     private readonly RelayCommand _useRecentConnectionCommand;
+    private readonly RelayCommand _updateDeviceMetadataCommand;
+    private readonly RelayCommand _registerManualDeviceCommand;
     private DeviceModel? _selectedDevice;
     private RecentConnectionEntry? _selectedRecentConnection;
     private CaptureDisplayOption? _selectedCaptureDisplay;
@@ -45,6 +57,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _connectionQualitySummary = "No active connection";
     private string _cpuUsageText = "CPU: collecting...";
     private string _memoryUsageText = "Memory: collecting...";
+    private string _currentRemotePath = string.Empty;
+    private double _downloadProgress;
+    private string _editDeviceName = string.Empty;
+    private string _editDeviceDescription = string.Empty;
+    private string _manualRegisterIP = "127.0.0.1";
+    private int _manualRegisterPort = 9999;
+    private bool _isEditPanelVisible;
+    private bool _isRemoteInputBlocked;
 
     public MainViewModel(IRemoteSessionService remoteSessionService, ResourceMonitorService resourceMonitorService)
     {
@@ -61,6 +81,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _remoteSessionService.DevicesChanged += HandleDevicesChanged;
         _remoteSessionService.RecentConnectionsChanged += HandleRecentConnectionsChanged;
         _remoteSessionService.SessionSnapshotChanged += HandleSessionSnapshotChanged;
+        _remoteSessionService.FileSystemListReceived += HandleFileSystemListReceived;
+        _remoteSessionService.FileTransferProgressChanged += (progress) => DownloadProgress = progress;
         _resourceMonitorService.SnapshotUpdated += HandleResourceSnapshotUpdated;
         ApprovalModes = ["User approval", "Pre-approved device", "Support request"];
 
@@ -69,9 +91,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _disconnectCommand = new RelayCommand(Disconnect, () => ActiveSessionStatus is not "Idle");
         _copyFileCommand = new RelayCommand(CopyFile, () => SelectedDevice is not null && IsCtrlCopyEnabled);
         _uploadFileCommand = new RelayCommand(UploadFile, () => ActiveSessionStatus is not "Idle");
+        _downloadFileCommand = new RelayCommand(DownloadFile, () => ActiveSessionStatus is not "Idle");
+        _browseRedirectedDrivesCommand = new RelayCommand(BrowseRedirectedDrives, () => ActiveSessionStatus is not "Idle");
+        _browseRemoteFilesCommand = new RelayCommand(BrowseRemoteFiles, () => ActiveSessionStatus is not "Idle");
+        _navigateIntoFolderCommand = new RelayCommand<FileEntry>(NavigateIntoFolder);
+        _downloadSelectedFileCommand = new RelayCommand<FileEntry>(DownloadSelectedFile);
         _toggleLocalDriveCommand = new RelayCommand(ToggleLocalDrive, () => SelectedDevice is not null);
         _toggleFavoriteCommand = new RelayCommand(ToggleFavorite, () => SelectedDevice is not null);
         _useRecentConnectionCommand = new RelayCommand(UseRecentConnection, () => SelectedRecentConnection is not null);
+        _updateDeviceMetadataCommand = new RelayCommand(UpdateDeviceMetadata, () => SelectedDevice is not null);
+        _registerManualDeviceCommand = new RelayCommand(RegisterManualDevice, () => !string.IsNullOrWhiteSpace(ManualRegisterIP));
+        _lockRemoteSessionCommand = new RelayCommand(LockRemoteSession, () => ActiveSessionStatus != "Idle");
+        _toggleRemoteInputBlockCommand = new RelayCommand(ToggleRemoteInputBlock, () => ActiveSessionStatus != "Idle");
+        _pasteRemoteClipboardCommand = new AsyncRelayCommand(PasteRemoteClipboardAsync, () => ActiveSessionStatus == "Connected" && IsCtrlCopyEnabled);
 
         SelectedDevice = Devices.FirstOrDefault();
         SelectedCaptureDisplay = CaptureDisplays.FirstOrDefault();
@@ -88,6 +120,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         _remoteSessionService.SetAutoReconnect(_isReconnectEnabled);
         _remoteSessionService.SetClipboardSyncEnabled(_isClipboardSyncEnabled);
+        _remoteSessionService.SetCtrlCopyEnabled(_isCtrlCopyEnabled);
     }
 
     public ObservableCollection<DeviceModel> Devices { get; }
@@ -103,6 +136,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<SessionLogEntry> SessionLogs { get; }
 
     public ObservableCollection<RecentConnectionEntry> RecentConnections { get; }
+    public ObservableCollection<string> Breadcrumbs { get; } = ["Root"];
+    public ObservableCollection<FileEntry> RemoteFiles { get; } = [];
+
+    public double DownloadProgress
+    {
+        get => _downloadProgress;
+        set => SetProperty(ref _downloadProgress, value);
+    }
+
+    public string CurrentRemotePath
+    {
+        get => _currentRemotePath;
+        set
+        {
+            if (SetProperty(ref _currentRemotePath, value))
+            {
+                UpdateBreadcrumbs(value);
+            }
+        }
+    }
 
     public IReadOnlyList<string> ApprovalModes { get; }
 
@@ -116,11 +169,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public RelayCommand UploadFileCommand => _uploadFileCommand;
 
+    public RelayCommand DownloadFileCommand => _downloadFileCommand;
+
+    public RelayCommand BrowseRedirectedDrivesCommand => _browseRedirectedDrivesCommand;
+
+    public RelayCommand BrowseRemoteFilesCommand => _browseRemoteFilesCommand;
+    public RelayCommand<FileEntry> NavigateIntoFolderCommand => _navigateIntoFolderCommand;
+    public RelayCommand<FileEntry> DownloadSelectedFileCommand => _downloadSelectedFileCommand;
     public RelayCommand ToggleLocalDriveCommand => _toggleLocalDriveCommand;
 
     public RelayCommand ToggleFavoriteCommand => _toggleFavoriteCommand;
-
     public RelayCommand UseRecentConnectionCommand => _useRecentConnectionCommand;
+    public RelayCommand UpdateDeviceMetadataCommand => _updateDeviceMetadataCommand;
+    public RelayCommand RegisterManualDeviceCommand => _registerManualDeviceCommand;
+    public RelayCommand LockRemoteSessionCommand => _lockRemoteSessionCommand;
+    public RelayCommand ToggleRemoteInputBlockCommand => _toggleRemoteInputBlockCommand;
+    public IRelayCommand PasteRemoteClipboardCommand => _pasteRemoteClipboardCommand;
 
     public string BuildProfile => "Framework: .NET 9";
 
@@ -164,6 +228,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _selectedDevice, value) && value is not null)
             {
+                RaisePropertyChanged(nameof(SelectedDeviceFavoriteLabel));
+                
+                if (_selectedDevice != null)
+                {
+                    EditDeviceName = _selectedDevice.Name;
+                    EditDeviceDescription = _selectedDevice.Description;
+                }
+                
                 QuickConnectDeviceId = value.DeviceId;
                 NotifyCommandStates();
             }
@@ -306,6 +378,42 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         private set => SetProperty(ref _transferSummary, value);
     }
 
+    public string EditDeviceName
+    {
+        get => _editDeviceName;
+        set => SetProperty(ref _editDeviceName, value);
+    }
+
+    public string EditDeviceDescription
+    {
+        get => _editDeviceDescription;
+        set => SetProperty(ref _editDeviceDescription, value);
+    }
+
+    public string ManualRegisterIP
+    {
+        get => _manualRegisterIP;
+        set => SetProperty(ref _manualRegisterIP, value);
+    }
+
+    public int ManualRegisterPort
+    {
+        get => _manualRegisterPort;
+        set => SetProperty(ref _manualRegisterPort, value);
+    }
+
+    public bool IsEditPanelVisible
+    {
+        get => _isEditPanelVisible;
+        set => SetProperty(ref _isEditPanelVisible, value);
+    }
+
+    public bool IsRemoteInputBlocked
+    {
+        get => _isRemoteInputBlocked;
+        set => SetProperty(ref _isRemoteInputBlocked, value);
+    }
+
     public bool IsClipboardSyncEnabled
     {
         get => _isClipboardSyncEnabled;
@@ -326,6 +434,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _isCtrlCopyEnabled, value))
             {
+                _remoteSessionService.SetCtrlCopyEnabled(value);
                 NotifyCommandStates();
                 TransferSummary = BuildTransferSummary();
             }
@@ -352,6 +461,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref _isLocalDriveRedirectEnabled, value))
             {
+                _remoteSessionService.SetLocalDriveRedirectEnabled(value);
                 TransferSummary = BuildTransferSummary();
             }
         }
@@ -493,6 +603,106 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    private async void DownloadFile()
+    {
+        // 실제 운영 환경에서는 원격 파일 브라우저가 필요하지만, 
+        // 현 단계에서는 데모를 위해 고정된 경로를 가정하거나 루프백 테스트용으로 사용합니다.
+        string remotePath = "C:\\Windows\\win.ini"; // 테스트 샘플 파일
+        
+        try
+        {
+            TransferSummary = $"Requesting download: {remotePath}...";
+            await _remoteSessionService.DownloadFileAsync(remotePath);
+            LastActionSummary = "Requested remote file download";
+            StatusMessage = $"Download request sent for {remotePath}.";
+            AddLog("File Download Requested", $"원격 파일 다운로드 요청: {remotePath}", "Direction: Download Request");
+        }
+        catch (Exception ex)
+        {
+            TransferSummary = $"Download request error: {ex.Message}";
+        }
+    }
+
+    private void BrowseRedirectedDrives()
+    {
+        // 실제로는 트리뷰나 리스트뷰로 구현하지만, 데모를 위해 루트(드라이브 목록)를 요청합니다.
+        try
+        {
+            TransferSummary = "Requesting redirected drive list...";
+            _remoteSessionService.RequestFileSystemList(string.Empty); // Empty means root (drives)
+            LastActionSummary = "Requested redirected drive listing";
+            StatusMessage = "FileSystem ListRequest sent to client.";
+            AddLog("Drive Browse Requested", "상대방의 리디렉션된 드라이브 목록을 요청했습니다.", "Remote FS");
+        }
+        catch (Exception ex)
+        {
+            TransferSummary = $"FS List error: {ex.Message}";
+        }
+    }
+
+    private void BrowseRemoteFiles()
+    {
+        try
+        {
+            // 루트 목록 요청
+            _remoteSessionService.RequestFileSystemList(string.Empty);
+            
+            // 창 열기 (이미 구현된 RemoteFileBrowserWindow가 있다고 가정)
+            // 실제 배포 시에는 MVVM Window Service를 사용해야 하지만, 초기 프로토타입은 직접 생성
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                var browser = new Views.RemoteFileBrowserWindow();
+                browser.DataContext = this;
+                browser.Show();
+            });
+            
+            AddLog("Remote Explorer", "원격 장치의 파일 탐색기 창을 열었습니다.", "Remote FS");
+        }
+        catch (Exception ex)
+        {
+            TransferSummary = $"Explorer error: {ex.Message}";
+        }
+    }
+
+    private void NavigateIntoFolder(FileEntry? entry)
+    {
+        if (entry == null || !entry.IsDirectory) return;
+        _remoteSessionService.RequestFileSystemList(entry.Path);
+    }
+
+    private void UpdateBreadcrumbs(string path)
+    {
+        Application.Current.Dispatcher.Invoke(() =>
+        {
+            Breadcrumbs.Clear();
+            Breadcrumbs.Add("Root");
+            if (string.IsNullOrWhiteSpace(path)) return;
+
+            string[] parts = path.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+            foreach (var part in parts)
+            {
+                Breadcrumbs.Add(part);
+            }
+        });
+    }
+
+    private async void DownloadSelectedFile(FileEntry? entry)
+    {
+        if (entry == null || entry.IsDirectory) return;
+        
+        try
+        {
+            TransferSummary = $"Requesting download: {entry.Name}...";
+            await _remoteSessionService.DownloadFileAsync(entry.Path);
+            LastActionSummary = $"Download started: {entry.Name}";
+            AddLog("File Download", $"원격 파일 다운로드 시작: {entry.Name}", $"Source: {entry.Path}");
+        }
+        catch (Exception ex)
+        {
+            TransferSummary = $"Download error: {ex.Message}";
+        }
+    }
+
     private void ToggleLocalDrive()
     {
         IsLocalDriveRedirectEnabled = !IsLocalDriveRedirectEnabled;
@@ -501,6 +711,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             ? "Local drives are exposed to the remote session."
             : "Local drives are hidden from the remote session.";
         AddLog("Drive Redirect", LastActionSummary, $"Target: {SelectedDevice?.Name ?? QuickConnectDeviceId}");
+    }
+
+    private async Task PasteRemoteClipboardAsync()
+    {
+        await _remoteSessionService.DownloadClipboardFilesAsync().ConfigureAwait(false);
     }
 
     private void ToggleFavorite()
@@ -517,6 +732,37 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             : $"{SelectedDevice.Name} 장치를 즐겨찾기에서 제거했습니다.";
         RaisePropertyChanged(nameof(SelectedDeviceFavoriteLabel));
         AddLog("Favorite Updated", StatusMessage, $"Target: {SelectedDevice.DeviceCode}");
+    }
+
+    private void UpdateDeviceMetadata()
+    {
+        if (SelectedDevice is null) return;
+        _remoteSessionService.UpdateDeviceMetadata(SelectedDevice.InternalGuid, EditDeviceName, EditDeviceDescription);
+        LastActionSummary = "Updated device information";
+        AddLog("Device Info Updated", $"장치 정보가 사용자에 의해 수정되었습니다: {SelectedDevice.Name}", $"GUID: {SelectedDevice.InternalGuid}");
+    }
+
+    private void RegisterManualDevice()
+    {
+        if (string.IsNullOrWhiteSpace(ManualRegisterIP)) return;
+        _remoteSessionService.RegisterManualDevice(ManualRegisterIP, ManualRegisterPort);
+        LastActionSummary = $"Manually registered device: {ManualRegisterIP}";
+        AddLog("Manual Registration", $"장치를 수동으로 등록했습니다: {ManualRegisterIP}", $"Port: {ManualRegisterPort}");
+    }
+
+    private void LockRemoteSession()
+    {
+        _remoteSessionService.LockRemoteSession();
+        LastActionSummary = "Requested remote screen lock";
+        AddLog("Screen Lock", "원격 화면 잠금을 요청했습니다.", "Security");
+    }
+
+    private void ToggleRemoteInputBlock()
+    {
+        IsRemoteInputBlocked = !IsRemoteInputBlocked;
+        _remoteSessionService.SetRemoteInputBlocked(IsRemoteInputBlocked);
+        LastActionSummary = IsRemoteInputBlocked ? "Requested input block" : "Requested input unblock";
+        AddLog("Input Block", IsRemoteInputBlocked ? "원격 입력 차단을 요청했습니다." : "원격 입력 허용을 요청했습니다.", "Security");
     }
 
     private void UseRecentConnection()
@@ -558,6 +804,39 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         TransferSummary = BuildTransferSummary();
     }
 
+    private void HandleFileSystemListReceived(string json)
+    {
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            try
+            {
+                var entries = System.Text.Json.JsonSerializer.Deserialize<List<FileEntry>>(json);
+                if (entries == null) return;
+
+                RemoteFiles.Clear();
+                foreach (var entry in entries.OrderByDescending(e => e.IsDirectory).ThenBy(e => e.Name))
+                {
+                    RemoteFiles.Add(entry);
+                }
+
+                if (entries.Count > 0)
+                {
+                    string? firstPath = entries[0].Path;
+                    if (!string.IsNullOrEmpty(firstPath))
+                    {
+                        int lastSlash = firstPath.LastIndexOfAny(['\\', '/']);
+                        CurrentRemotePath = lastSlash > 0 ? firstPath[..lastSlash] : string.Empty;
+                    }
+                }
+                TransferSummary = $"Remote directory listing updated. ({RemoteFiles.Count} items)";
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MainViewModel] FS List processing error: {ex.Message}");
+                TransferSummary = $"Error parsing FS list: {ex.Message}";
+            }
+        });
+    }
     private string BuildTransferSummary()
     {
         return $"Clipboard sync: {(IsClipboardSyncEnabled ? "On" : "Off")} / Ctrl copy: {(IsCtrlCopyEnabled ? "On" : "Off")} / Viewer safe display: {(IsViewerPinnedToSafeDisplay ? "On" : "Off")} / Viewer display: {SelectedViewerDisplay?.Label ?? "Auto"} / Capture rate: {SelectedCaptureRate?.Label ?? "Default"} / Compression: {SelectedCompression?.Label ?? "Default"} / Local drive: {(IsLocalDriveRedirectEnabled ? "On" : "Off")} / Capture display: {SelectedCaptureDisplay?.Label ?? "Not selected"}";
@@ -645,6 +924,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _disconnectCommand.NotifyCanExecuteChanged();
         _copyFileCommand.NotifyCanExecuteChanged();
         _uploadFileCommand.NotifyCanExecuteChanged();
+        _downloadFileCommand.NotifyCanExecuteChanged();
+        _browseRedirectedDrivesCommand.NotifyCanExecuteChanged();
+        _browseRemoteFilesCommand.NotifyCanExecuteChanged();
         _toggleLocalDriveCommand.NotifyCanExecuteChanged();
         _toggleFavoriteCommand.NotifyCanExecuteChanged();
         _useRecentConnectionCommand.NotifyCanExecuteChanged();
@@ -660,5 +942,22 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _remoteSessionService.RecentConnectionsChanged -= HandleRecentConnectionsChanged;
         _remoteSessionService.SessionSnapshotChanged -= HandleSessionSnapshotChanged;
         _resourceMonitorService.SnapshotUpdated -= HandleResourceSnapshotUpdated;
+    }
+}
+
+public class ProgressToVisibilityConverter : System.Windows.Data.IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        if (value is double progress)
+        {
+            return progress > 0 && progress < 100 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        }
+        return System.Windows.Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        throw new NotImplementedException();
     }
 }

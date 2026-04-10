@@ -8,6 +8,8 @@ public interface IRemoteSessionService
     event Action? DevicesChanged;
     event Action? RecentConnectionsChanged;
     event Action<ConnectionSnapshot>? SessionSnapshotChanged;
+    event Action<string>? FileSystemListReceived;
+    event Action<double>? FileTransferProgressChanged;
 
     IReadOnlyList<CaptureDisplayOption> GetCaptureDisplays();
 
@@ -30,12 +32,16 @@ public interface IRemoteSessionService
     void SetAutoReconnect(bool enabled);
 
     void SetClipboardSyncEnabled(bool enabled);
+    void SetLocalDriveRedirectEnabled(bool enabled);
+    void RequestFileSystemList(string path);
 
     IReadOnlyList<DeviceModel> GetDevices();
 
     IReadOnlyList<RecentConnectionEntry> GetRecentConnections();
 
     void ToggleFavorite(string internalGuid);
+    void UpdateDeviceMetadata(string internalGuid, string? customName, string? customDescription);
+    void RegisterManualDevice(string ip, int port);
 
     DuplicateCheckResult GetDuplicateCheckResult();
 
@@ -52,4 +58,13 @@ public interface IRemoteSessionService
     SessionLogEntry CreateLog(string title, string message, string meta);
 
     Task UploadFileAsync(string filePath);
+    Task DownloadFileAsync(string remotePath);
+
+    void LockRemoteSession();
+    void SetRemoteInputBlocked(bool blocked);
+
+    // FR-8: Ctrl+C / Ctrl+V 파일 전송 지원
+    void SetCtrlCopyEnabled(bool enabled);
+    Task DownloadClipboardFilesAsync();
+    void RequestResolutionChange(int width, int height);
 }

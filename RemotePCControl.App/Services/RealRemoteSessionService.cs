@@ -8,13 +8,19 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Security;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using RemotePCControl.App.Infrastructure.Input;
 using RemotePCControl.App.Infrastructure.Network;
+using RemotePCControl.App.Infrastructure.FileSystem;
+using RemotePCControl.App.Infrastructure.Logging;
 using RemotePCControl.App.Models;
 
 namespace RemotePCControl.App.Services;
@@ -26,8 +32,18 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     private const byte KeyboardInputPacketType = 0x02;
     private const byte FileChunkPacketType = 0x03;
     private const byte ClipboardTextPacketType = 0x04;
+    private const byte FileMetaPacketType = 0x05;
+    private const byte FileDownloadRequestPacketType = 0x06;
+    private const byte FileSystemListRequestPacketType = 0x09;
+    private const byte FileSystemListResponsePacketType = 0x0A;
     private const byte RawBgraEncoding = 0x00;
     private const byte JpegEncoding = 0x01;
+    private const byte ClipboardImagePacketType = 0x0C;
+    private const byte CursorShapePacketType = 0x0D;
+    private const byte LockSessionPacketType = 0x0E;
+    private const byte BlockInputPacketType = 0x0F;
+    private const byte ClipboardFilesPacketType = 0x10;
+    private const byte ResolutionChangePacketType = 0x11;
 
     private readonly TcpConnectionManager _tcpManager;
     private readonly ScreenCaptureService _captureService;
@@ -39,8 +55,12 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     private readonly LocalDiscoveryService _localDiscoveryService;
     private readonly ConnectionResolutionService _connectionResolutionService;
     private readonly ApprovalService _approvalService;
+    private readonly FileSystemService _fileSystemService;
+    private readonly SessionLogStore _logStore;
+    private readonly CursorCaptureService _cursorCaptureService;
     private readonly Dictionary<string, DeviceModel> _devices = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _favoriteDeviceInternalGuids = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DevicePreferenceStore.DeviceMetadata> _deviceMetadataMap = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<RecentConnectionEntry> _recentConnections = [];
     private readonly DeviceIdentity _localIdentity;
     private DuplicateCheckResult _duplicateCheckResult = DuplicateCheckResult.None;
@@ -65,8 +85,17 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     private string _lastApprovalMode = "User approval";
     private CancellationTokenSource? _reconnectCts;
     private CancellationTokenSource? _clipboardSyncCts;
+    private CancellationTokenSource? _cursorCts;
     private string _lastSentClipboardText = string.Empty;
     private string _lastAppliedClipboardText = string.Empty;
+    private ulong _lastSentClipboardImageHash = 0;
+    private ulong _lastAppliedClipboardImageHash = 0;
+    private ulong _lastSentClipboardFilesHash = 0;
+    private List<Models.ClipboardFileMeta> _remoteClipboardFiles = new();
+    private bool _isCtrlCopyEnabled = false;
+    private string _receivingFilePath = string.Empty;
+    private long _receivingFileSize = 0;
+    private long _receivedBytes = 0;
     private bool _isDisposed;
 
     public RealRemoteSessionService()
@@ -75,12 +104,16 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _captureService = new ScreenCaptureService();
         _inputService = new InputInjectionService();
         _fileTransferService = new FileTransferService();
+        _fileTransferService.ProgressChanged += (path, progress) => FileTransferProgressChanged?.Invoke(progress);
         _clipboardSyncService = new ClipboardSyncService();
         _deviceIdentityStore = new DeviceIdentityStore();
         _devicePreferenceStore = new DevicePreferenceStore();
         _localDiscoveryService = new LocalDiscoveryService();
         _connectionResolutionService = new ConnectionResolutionService();
         _approvalService = new ApprovalService();
+        _fileSystemService = new Infrastructure.FileSystem.FileSystemService();
+        _logStore = new SessionLogStore();
+        _cursorCaptureService = new CursorCaptureService();
         _localIdentity = _deviceIdentityStore.LoadOrCreate();
         LoadPersistedPreferences();
 
@@ -110,6 +143,8 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     public event Action? DevicesChanged;
     public event Action? RecentConnectionsChanged;
     public event Action<ConnectionSnapshot>? SessionSnapshotChanged;
+    public event Action<string>? FileSystemListReceived;
+    public event Action<double>? FileTransferProgressChanged;
 
     public IReadOnlyList<DeviceModel> GetDevices() => _devices.Values.OrderBy(device => device.Name, StringComparer.OrdinalIgnoreCase).ToArray();
 
@@ -131,12 +166,13 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             _favoriteDeviceInternalGuids.Add(internalGuid);
         }
 
+        PersistPreferences();
+
         if (_devices.TryGetValue(internalGuid, out DeviceModel? device))
         {
             device.IsFavorite = _favoriteDeviceInternalGuids.Contains(internalGuid);
         }
 
-        SavePersistedPreferences();
         DevicesChanged?.Invoke();
     }
 
@@ -161,6 +197,63 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         new CompressionOption { Label = "JPEG 65", EncodingMode = JpegEncoding, Quality = 65 }
     ];
 
+    private void HandleClipboardFiles(ReadOnlyMemory<byte> payload)
+    {
+        try
+        {
+            string json = Encoding.UTF8.GetString(payload.Span);
+            var files = JsonSerializer.Deserialize<List<Models.ClipboardFileMeta>>(json);
+            if (files != null)
+            {
+                _remoteClipboardFiles = files;
+                PublishLog("Remote Clipboard", $"원격지로부터 {files.Count}개의 파일 클립보드 정보를 수신했습니다. 'Paste' 버튼으로 다운로드 가능합니다.", "Clipboard Inbound");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Session] Clipboard File Handle Error: {ex.Message}");
+        }
+    }
+
+    private ulong CalculateFilesHash(string[] files)
+    {
+        ulong hash = 17;
+        foreach (var f in files)
+        {
+            hash = hash * 23 + (ulong)f.GetHashCode();
+        }
+        return hash;
+    }
+
+    private void HandleResolutionChange(ReadOnlyMemory<byte> payload)
+    {
+        try
+        {
+            int width = BitConverter.ToInt32(payload.Span.Slice(0, 4));
+            int height = BitConverter.ToInt32(payload.Span.Slice(4, 4));
+            PublishLog("Resolution Change Requested", $"Viewer requested resolution: {width}x{height}", "Display");
+            
+            bool success = _inputService.ChangeDisplayResolution(width, height);
+            PublishLog("Resolution Change result", success ? "Success: 원격지 해상도가 변경되었습니다." : "Failed: 지원하지 않는 해상도이거나 권한이 부족합니다.", "Display");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Session] Resolution Change Error: {ex.Message}");
+        }
+    }
+
+    public void RequestResolutionChange(int width, int height)
+    {
+        if (_currentSession == null || _isDisposed) return;
+
+        byte[] packet = new byte[9];
+        packet[0] = ResolutionChangePacketType;
+        BitConverter.TryWriteBytes(packet.AsSpan(1, 4), width);
+        BitConverter.TryWriteBytes(packet.AsSpan(5, 4), height);
+        _ = _currentSession.SendAsync(packet);
+        PublishLog("Resolution Request Sent", $"Requested remote resolution: {width}x{height}", "View Profile");
+    }
+
     public void SetAutoReconnect(bool enabled)
     {
         _autoReconnectEnabled = enabled;
@@ -179,6 +272,29 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         }
 
         TryStartClipboardSyncLoop();
+    }
+
+    public void SetLocalDriveRedirectEnabled(bool enabled)
+    {
+        _fileSystemService.SetDriveRedirectEnabled(enabled);
+        PublishLog("Drive Redirection", enabled ? "Local drives available to remote side." : "Local drives hidden from remote side.", "FileSystem");
+    }
+
+    public void RequestFileSystemList(string path)
+    {
+        if (_currentSession == null || _isDisposed)
+        {
+            return;
+        }
+
+        byte[] pathBytes = Encoding.UTF8.GetBytes(path);
+        byte[] packet = new byte[1 + 4 + pathBytes.Length];
+        packet[0] = FileSystemListRequestPacketType;
+        BitConverter.TryWriteBytes(packet.AsSpan(1, 4), pathBytes.Length);
+        pathBytes.CopyTo(packet.AsSpan(5));
+
+        _ = _currentSession.SendAsync(packet);
+        PublishLog("FS List Request Sent", $"Requested directory listing for: {path}", "FileSystem");
     }
 
     public void SetCaptureDisplay(string displayId)
@@ -239,14 +355,21 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         PublishLog("Compression Updated", $"Transfer encoding set to {label}.", "Transport");
     }
 
-    public IReadOnlyList<SessionLogEntry> GetSeedLogs() =>
-    [
-        CreateLog("Engine Started", "RealRemoteSessionService initialized with Network, Capture, Discovery, and Input engines.", "System Ready"),
-        CreateLog("Local Device Ready", $"{_localIdentity.DeviceName} / {_localIdentity.DeviceCode}", $"GUID: {_localIdentity.InternalGuid[..8]}"),
-        _duplicateCheckResult.IsDuplicate
-            ? CreateLog("Duplicate Identifier Warning", "같은 로컬 네트워크에서 중복 장치 이름 또는 장치 번호가 감지되었습니다.", $"Conflicts: {_duplicateCheckResult.Conflicts.Count}")
-            : CreateLog("Duplicate Identifier Check", "로컬 네트워크 기준 중복 장치 식별자가 발견되지 않았습니다.", "Broadcast probe complete")
-    ];
+    public IReadOnlyList<SessionLogEntry> GetSeedLogs()
+    {
+        // 영구 저장된 로그를 먼저 가져오고 기본 로그 추가
+        var savedLogs = _logStore.LoadAllLogs();
+        if (savedLogs.Count > 0) return savedLogs;
+
+        return
+        [
+            CreateLog("Engine Started", "RealRemoteSessionService initialized with Network, Capture, Discovery, and Input engines.", "System Ready"),
+            CreateLog("Local Device Ready", $"{_localIdentity.DeviceName} / {_localIdentity.DeviceCode}", $"GUID: {_localIdentity.InternalGuid[..8]}"),
+            _duplicateCheckResult.IsDuplicate
+                ? CreateLog("Duplicate Identifier Warning", "같은 로컬 네트워크에서 중복 장치 이름 또는 장치 번호가 감지되었습니다.", $"Conflicts: {_duplicateCheckResult.Conflicts.Count}")
+                : CreateLog("Duplicate Identifier Check", "로컬 네트워크 기준 중복 장치 식별자가 발견되지 않았습니다.", "Broadcast probe complete")
+        ];
+    }
 
     public ConnectionSnapshot CreateQuickConnection(DeviceModel? device, string approvalMode)
     {
@@ -307,13 +430,15 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
 
     public SessionLogEntry CreateLog(string title, string message, string meta)
     {
-        return new SessionLogEntry
+        var entry = new SessionLogEntry
         {
             Timestamp = DateTime.Now,
             Title = title,
             Message = message,
             Meta = meta
         };
+        _logStore.SaveLog(entry);
+        return entry;
     }
 
     public Task UploadFileAsync(string filePath)
@@ -323,7 +448,60 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             return Task.CompletedTask;
         }
 
-        return _fileTransferService.SendFileAsync(filePath, _currentSession, default);
+        return _fileTransferService.SendFileWithMetaAsync(filePath, _currentSession, FileMetaPacketType, FileChunkPacketType, default);
+    }
+
+    public Task DownloadFileAsync(string remotePath)
+    {
+        if (_currentSession == null || _isDisposed)
+        {
+            return Task.CompletedTask;
+        }
+
+        byte[] pathBytes = Encoding.UTF8.GetBytes(remotePath);
+        byte[] packet = new byte[1 + 4 + pathBytes.Length];
+        packet[0] = FileDownloadRequestPacketType;
+        BitConverter.TryWriteBytes(packet.AsSpan(1, 4), pathBytes.Length);
+        pathBytes.CopyTo(packet.AsSpan(5));
+
+        return _currentSession.SendAsync(packet);
+    }
+
+    public void LockRemoteSession()
+    {
+        if (_currentSession == null || _isDisposed) return;
+        byte[] packet = [LockSessionPacketType];
+        _ = _currentSession.SendAsync(packet);
+        PublishLog("Lock Request Sent", "Requested remote workstation to lock.", "Security");
+    }
+
+    public void SetRemoteInputBlocked(bool blocked)
+    {
+        if (_currentSession == null || _isDisposed) return;
+        byte[] packet = [BlockInputPacketType, (byte)(blocked ? 1 : 0)];
+        _ = _currentSession.SendAsync(packet);
+        PublishLog("Input Block Request Sent", $"Requested remote input to be {(blocked ? "blocked" : "unblocked")}.", "Security");
+    }
+
+    public void SetCtrlCopyEnabled(bool enabled)
+    {
+        _isCtrlCopyEnabled = enabled;
+        PublishLog("Ctrl+C/V File Sync", enabled ? "Enabled." : "Disabled.", "Clipboard");
+    }
+
+    public async Task DownloadClipboardFilesAsync()
+    {
+        if (_remoteClipboardFiles.Count == 0)
+        {
+            PublishLog("Paste Failed", "No files found in remote clipboard.", "Clipboard");
+            return;
+        }
+
+        PublishLog("Paste Started", $"{_remoteClipboardFiles.Count}개의 원격 클립보드 파일 다운로드를 시작합니다.", "Clipboard Inbound");
+        foreach (var file in _remoteClipboardFiles)
+        {
+            await DownloadFileAsync(file.FullPath).ConfigureAwait(false);
+        }
     }
 
     public void Dispose()
@@ -413,6 +591,33 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _userInitiatedDisconnect = false;
         session.OnMessageReceived += HandleIncomingMessage;
         PublishLog("Session Connected", $"Session {session.SessionId[..8]} is active.", "Network");
+        
+        if (session.Stream is SslStream sslStream && _lastRequestedDevice != null)
+        {
+            var cert = sslStream.RemoteCertificate as X509Certificate2;
+            if (cert != null)
+            {
+                string thumbprint = cert.Thumbprint;
+                var existingMeta = _devicePreferenceStore.Load().DeviceMetadata;
+                if (existingMeta.TryGetValue(_lastRequestedDevice.InternalGuid, out var meta) && !string.IsNullOrEmpty(meta.TrustedThumbprint))
+                {
+                    if (meta.TrustedThumbprint != thumbprint)
+                    {
+                        PublishLog("Security Alert", "인증서 지문이 이전에 저장된 정보와 일치하지 않습니다! (MITM 위험)", "Security");
+                    }
+                    else
+                    {
+                        PublishLog("Security Verified", "인증서 지문이 확인되었습니다.", "Security");
+                    }
+                }
+                else
+                {
+                    _devicePreferenceStore.UpdateDeviceTrustedThumbprint(_lastRequestedDevice.InternalGuid, thumbprint);
+                    PublishLog("Security Information", "새로운 장치의 인증서 지문을 신뢰할 수 있는 것으로 등록했습니다.", "Security");
+                }
+            }
+        }
+
         PublishSnapshot(new ConnectionSnapshot
         {
             SessionTitle = $"Connected to {_lastRequestedDevice?.Name ?? session.SessionId[..8]}",
@@ -423,14 +628,30 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         });
         RecordRecentConnection(_lastRequestedDevice);
         TryStartClipboardSyncLoop();
+        TryStartCursorSyncLoop();
 
         if (_captureService.Initialize())
         {
             _captureCts = new CancellationTokenSource();
-            _ = _captureService.CaptureLoopAsync(
-                (frameData, width, height) => OnFrameCapturedAsync(session, frameData, width, height),
-                _captureCts.Token);
-            PublishLog("Capture Started", "Screen capture loop started.", "Capture");
+            _ = Task.Run(async () =>
+            {
+                while (!_captureCts.Token.IsCancellationRequested && _currentSession != null)
+                {
+                    try
+                    {
+                        await _captureService.CaptureLoopAsync(
+                            (frameData, width, height) => OnFrameCapturedAsync(session, frameData, width, height),
+                            _captureCts.Token);
+                    }
+                    catch (Exception ex)
+                    {
+                        PublishLog("Capture Interrupted", $"Screen capture loop stopped: {ex.Message}. Retrying...", "Capture");
+                        await Task.Delay(2000, _captureCts.Token);
+                        if (!_captureService.Initialize()) break;
+                    }
+                }
+            }, _captureCts.Token);
+            PublishLog("Capture Started", "Screen capture loop started with auto-recovery.", "Capture");
         }
         else
         {
@@ -504,6 +725,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                         GetCompressionLabel());
                     _rdpWindow.OnMouseInputCaptured += HandleClientMouseInput;
                     _rdpWindow.OnKeyboardInputCaptured += HandleClientKeyboardInput;
+                    _rdpWindow.OnResolutionRequested += (w, h) => RequestResolutionChange(w, h);
                     _rdpWindow.Closed += HandleViewerWindowClosed;
                     _rdpWindow.Show();
                     PublishLog("Remote Window Opened", "Remote desktop window created.", "Viewer");
@@ -534,11 +756,97 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         else if (packetType == FileChunkPacketType)
         {
             ReadOnlyMemory<byte> chunkData = payload.Slice(1);
-            _ = _fileTransferService.ReceiveFileChunkAsync("C:\\Temp\\ReceivedFile.dat", chunkData, default);
+            string destination = string.IsNullOrWhiteSpace(_receivingFilePath) 
+                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "RemotePCControl", "ReceivedFile.dat")
+                : _receivingFilePath;
+            _ = _fileTransferService.ReceiveFileChunkAsync(destination, chunkData, default);
+            
+            _receivedBytes += chunkData.Length;
+            if (_receivingFileSize > 0)
+            {
+                double progress = (double)_receivedBytes * 100 / _receivingFileSize;
+                FileTransferProgressChanged?.Invoke(progress);
+            }
+        }
+        else if (packetType == FileMetaPacketType && payload.Length > 13) // Header(1) + NameLen(4) + Name(?) + Size(8)
+        {
+            int nameLength = BitConverter.ToInt32(payload.Span.Slice(1, 4));
+            string fileName = Encoding.UTF8.GetString(payload.Span.Slice(5, nameLength));
+            _receivingFileSize = BitConverter.ToInt64(payload.Span.Slice(5 + nameLength, 8));
+            _receivedBytes = 0;
+
+            string downloadFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "RemotePCControl");
+            _receivingFilePath = Path.Combine(downloadFolder, fileName);
+            
+            // 기존 파일이 있으면 삭제 (새로 시작)
+            if (File.Exists(_receivingFilePath)) File.Delete(_receivingFilePath);
+            
+            PublishLog("File Transfer Started", $"Receiving file: {fileName} ({_receivingFileSize / 1024} KB)", "File Inbound");
+            FileTransferProgressChanged?.Invoke(0.0);
+        }
+        else if (packetType == FileDownloadRequestPacketType && payload.Length > 5)
+        {
+            int pathLength = BitConverter.ToInt32(payload.Span.Slice(1, 4));
+            string remotePath = Encoding.UTF8.GetString(payload.Span.Slice(5, pathLength));
+            _ = _fileTransferService.SendFileWithMetaAsync(remotePath, session, FileMetaPacketType, FileChunkPacketType, default);
+            PublishLog("Download Requested", $"Remote side requested to download: {remotePath}", "File Outbound");
+        }
+        else if (packetType == CursorShapePacketType && payload.Length >= 2)
+        {
+            bool isVisible = payload.Span[1] != 0;
+            string cursorName = payload.Length > 2 ? Encoding.UTF8.GetString(payload.Span.Slice(2)) : "Arrow";
+            Application.Current?.Dispatcher.Invoke(() => _rdpWindow?.UpdateRemoteCursor(cursorName, isVisible));
+        }
+        else if (packetType == FileSystemListRequestPacketType && payload.Length >= 5)
+        {
+            int pathLength = BitConverter.ToInt32(payload.Span.Slice(1, 4));
+            string path = pathLength > 0 ? Encoding.UTF8.GetString(payload.Span.Slice(5, pathLength)) : string.Empty;
+            string json = _fileSystemService.GetDirectoryListingJson(path);
+            byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+            byte[] responsePacket = new byte[1 + 4 + jsonBytes.Length];
+            responsePacket[0] = FileSystemListResponsePacketType;
+            BitConverter.TryWriteBytes(responsePacket.AsSpan(1, 4), jsonBytes.Length);
+            jsonBytes.CopyTo(responsePacket.AsSpan(5));
+            _ = session.SendAsync(responsePacket);
+            PublishLog("FS List Requested", $"Remote side requested listing for: {path}", "FileSystem");
+        }
+        else if (packetType == FileSystemListResponsePacketType && payload.Length >= 5)
+        {
+            int jsonLength = BitConverter.ToInt32(payload.Span.Slice(1, 4));
+            string json = Encoding.UTF8.GetString(payload.Span.Slice(5, jsonLength));
+            // 이곳에서 수신한 JSON 데이터를 UI 또는 상태로 전달할 수 있습니다.
+            FileSystemListReceived?.Invoke(json);
+            
+            // 개발용 로그 기록
+            Debug.WriteLine($"[RealRemoteSessionService] FS List Response: {json[..Math.Min(json.Length, 100)]}...");
+            PublishLog("FS List Received", "Redirected drive data received from client.", "FileSystem");
         }
         else if (packetType == ClipboardTextPacketType)
         {
             HandleIncomingClipboardText(payload.Slice(1));
+        }
+        else if (packetType == ClipboardImagePacketType)
+        {
+            HandleIncomingClipboardImage(payload.Slice(1));
+        }
+        else if (packetType == LockSessionPacketType)
+        {
+            bool success = _inputService.LockSession();
+            PublishLog("Remote Session Locked", success ? "Session locked successfully." : "Failed to lock session.", "Security");
+        }
+        else if (packetType == BlockInputPacketType && payload.Length >= 2)
+        {
+            bool blocked = payload.Span[1] != 0;
+            bool success = _inputService.SetInputBlock(blocked);
+            PublishLog("Remote Input Blocking", success ? $"Input {(blocked ? "blocked" : "unblocked")} successfully." : "Failed to change input block state.", "Security");
+        }
+        else if (packetType == ClipboardFilesPacketType)
+        {
+            HandleClipboardFiles(payload.Slice(1));
+        }
+        else if (packetType == ResolutionChangePacketType && payload.Length >= 9)
+        {
+            HandleResolutionChange(payload.Slice(1));
         }
     }
 
@@ -618,29 +926,34 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     {
         DevicePreferenceStore.DevicePreferenceSnapshot snapshot = _devicePreferenceStore.Load();
         _favoriteDeviceInternalGuids.Clear();
-        foreach (string internalGuid in snapshot.FavoriteDeviceInternalGuids)
-        {
-            _favoriteDeviceInternalGuids.Add(internalGuid);
-        }
+        foreach (var guid in snapshot.FavoriteDeviceInternalGuids) _favoriteDeviceInternalGuids.Add(guid);
+        
+        _deviceMetadataMap.Clear();
+        foreach (var pair in snapshot.DeviceMetadata) _deviceMetadataMap.Add(pair.Key, pair.Value);
 
         _recentConnections.Clear();
         _recentConnections.AddRange(snapshot.RecentConnections.OrderByDescending(entry => entry.LastConnectedAt));
     }
 
-    private void SavePersistedPreferences()
+    private void PersistPreferences()
     {
-        _devicePreferenceStore.Save(
-            new DevicePreferenceStore.DevicePreferenceSnapshot(
-                _favoriteDeviceInternalGuids.ToArray(),
-                _recentConnections.ToArray()));
+        _devicePreferenceStore.Save(new DevicePreferenceStore.DevicePreferenceSnapshot(
+            _favoriteDeviceInternalGuids.ToArray(),
+            _recentConnections.ToArray(),
+            _deviceMetadataMap));
     }
 
-    private void ApplyPersistedDeviceState(DeviceModel device)
+    private void UpsertDevice(DeviceModel device)
     {
-        if (_favoriteDeviceInternalGuids.Contains(device.InternalGuid))
+        // 커스텀 메타데이터 적용
+        if (_deviceMetadataMap.TryGetValue(device.InternalGuid, out var meta))
         {
-            device.IsFavorite = true;
+            if (!string.IsNullOrWhiteSpace(meta.CustomName)) device.Name = meta.CustomName;
+            if (!string.IsNullOrWhiteSpace(meta.CustomDescription)) device.Description = meta.CustomDescription;
         }
+
+        device.IsFavorite = _favoriteDeviceInternalGuids.Contains(device.InternalGuid);
+        _devices[device.InternalGuid] = device;
     }
 
     private void RecordRecentConnection(DeviceModel? device)
@@ -666,7 +979,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             _recentConnections.RemoveRange(10, _recentConnections.Count - 10);
         }
 
-        SavePersistedPreferences();
+        PersistPreferences();
         RecentConnectionsChanged?.Invoke();
     }
 
@@ -688,6 +1001,8 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _clipboardSyncCts = null;
         _lastSentClipboardText = string.Empty;
         _lastAppliedClipboardText = string.Empty;
+        _lastSentClipboardImageHash = 0;
+        _lastAppliedClipboardImageHash = 0;
     }
 
     private async Task RunClipboardSyncLoopAsync(TcpSession session, CancellationToken cancellationToken)
@@ -709,10 +1024,53 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                 {
                     await SendClipboardTextAsync(session, clipboardText, cancellationToken).ConfigureAwait(false);
                     _lastSentClipboardText = clipboardText;
-                    PublishLog("Clipboard Synced", $"텍스트 클립보드가 {_lastRequestedDevice?.Name ?? session.SessionId[..8]} 세션으로 전송되었습니다.", "Clipboard Outbound");
+                    PublishLog("Clipboard Synced (Text)", $"텍스트 클립보드가 전송되었습니다.", "Clipboard Outbound");
+                }
+                else
+                {
+                    // 텍스트 변화가 없을 때만 이미지 체크 (대역폭 배분)
+                    byte[]? imageBytes = _clipboardSyncService.GetImageAsPng();
+                    if (imageBytes != null)
+                    {
+                        ulong imageHash = ComputeSimpleHash(imageBytes);
+                        if (imageHash != _lastSentClipboardImageHash && imageHash != _lastAppliedClipboardImageHash)
+                        {
+                            await SendClipboardImageAsync(session, imageBytes, cancellationToken).ConfigureAwait(false);
+                            _lastSentClipboardImageHash = imageHash;
+                            PublishLog("Clipboard Synced (Image)", $"이미지 클립보드가 전송되었습니다. ({imageBytes.Length / 1024} KB)", "Clipboard Outbound");
+                        }
+                    }
+                    else
+                    {
+                        _lastSentClipboardImageHash = 0; // 이미지 사라짐 대응
+                    }
                 }
 
-                await Task.Delay(TimeSpan.FromMilliseconds(400), cancellationToken).ConfigureAwait(false);
+                // 3. 파일 클립보드 체크 (FR-8 기초)
+                if (_isCtrlCopyEnabled)
+                {
+                    string[]? files = _clipboardSyncService.GetFileDropList();
+                    if (files != null && files.Length > 0)
+                    {
+                        ulong currentHash = CalculateFilesHash(files);
+                        if (currentHash != _lastSentClipboardFilesHash)
+                        {
+                            _lastSentClipboardFilesHash = currentHash;
+                            var metaList = files.Select(f => new Models.ClipboardFileMeta
+                            {
+                                Name = Path.GetFileName(f),
+                                FullPath = f,
+                                Size = File.Exists(f) ? new FileInfo(f).Length : 0
+                            }).ToList();
+
+                            string json = JsonSerializer.Serialize(metaList);
+                            await _currentSession!.SendAsync(Combine([ClipboardFilesPacketType], Encoding.UTF8.GetBytes(json)), cancellationToken).ConfigureAwait(false);
+                            PublishLog("Clipboard Files", $"클립보드에 {files.Length}개의 파일이 복사되어 동기화를 준비합니다.", "Clipboard Outbound");
+                        }
+                    }
+                }
+
+                await Task.Delay(TimeSpan.FromMilliseconds(500), cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException)
@@ -733,6 +1091,41 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         }
     }
 
+    private void TryStartCursorSyncLoop()
+    {
+        if (_currentSession == null || _isDisposed) return;
+        _cursorCts?.Cancel();
+        _cursorCts = new CancellationTokenSource();
+        _ = CursorSyncLoopAsync(_currentSession, _cursorCts.Token);
+    }
+
+    private async Task CursorSyncLoopAsync(TcpSession session, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && _currentSession == session)
+            {
+                var cursorInfo = _cursorCaptureService.CaptureCurrentCursor();
+                if (cursorInfo != null)
+                {
+                    byte[] nameBytes = Encoding.UTF8.GetBytes(cursorInfo.CursorName);
+                    byte[] packet = new byte[2 + nameBytes.Length];
+                    packet[0] = CursorShapePacketType;
+                    packet[1] = (byte)(cursorInfo.IsVisible ? 1 : 0);
+                    nameBytes.CopyTo(packet.AsSpan(2));
+                    await session.SendAsync(packet, cancellationToken).ConfigureAwait(false);
+                }
+
+                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[RealRemoteSessionService] Cursor sync loop error: {ex.Message}");
+        }
+    }
+
     private async Task SendClipboardTextAsync(TcpSession session, string clipboardText, CancellationToken cancellationToken)
     {
         byte[] textBytes = Encoding.UTF8.GetBytes(clipboardText);
@@ -747,6 +1140,32 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         {
             ArrayPool<byte>.Shared.Return(packet);
         }
+    }
+
+    private async Task SendClipboardImageAsync(TcpSession session, byte[] imageBytes, CancellationToken cancellationToken)
+    {
+        byte[] packet = ArrayPool<byte>.Shared.Rent(imageBytes.Length + 1);
+        try
+        {
+            packet[0] = ClipboardImagePacketType;
+            imageBytes.CopyTo(packet.AsSpan(1));
+            await session.SendAsync(new ReadOnlyMemory<byte>(packet, 0, imageBytes.Length + 1), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(packet);
+        }
+    }
+
+    private static ulong ComputeSimpleHash(byte[] data)
+    {
+        ulong hash = 14695981039346656037UL;
+        foreach (byte b in data)
+        {
+            hash ^= b;
+            hash *= 1099511628211UL;
+        }
+        return hash;
     }
 
     private void HandleIncomingClipboardText(ReadOnlyMemory<byte> payload)
@@ -784,6 +1203,29 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _lastAppliedClipboardText = clipboardText;
         _lastSentClipboardText = clipboardText;
         PublishLog("Clipboard Received", $"텍스트 클립보드가 {_lastRequestedDevice?.Name ?? "현재 세션"}에서 동기화되었습니다.", "Clipboard Inbound");
+    }
+
+    private void HandleIncomingClipboardImage(ReadOnlyMemory<byte> payload)
+    {
+        if (!_isClipboardSyncEnabled || payload.IsEmpty)
+        {
+            return;
+        }
+
+        byte[] imageBytes = payload.ToArray();
+        ulong imageHash = ComputeSimpleHash(imageBytes);
+
+        if (imageHash == _lastSentClipboardImageHash || imageHash == _lastAppliedClipboardImageHash)
+        {
+            return;
+        }
+
+        Application.Current?.Dispatcher.Invoke(() =>
+        {
+            _lastAppliedClipboardImageHash = imageHash;
+            _clipboardSyncService.SetImageFromPng(imageBytes);
+            PublishLog("Clipboard Received (Image)", $"이미지 클립보드가 수신되어 적용되었습니다. ({imageBytes.Length / 1024} KB)", "Clipboard Inbound");
+        });
     }
 
     private static ConnectionSnapshot CreateApprovalDeniedSnapshot(string title, string detail, string qualitySummary)
@@ -832,11 +1274,52 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         DevicesChanged?.Invoke();
     }
 
-    private void UpsertDevice(DeviceModel device)
+    public void UpdateDeviceMetadata(string internalGuid, string? customName, string? customDescription)
     {
-        ApplyPersistedDeviceState(device);
-        _devices[device.InternalGuid] = device;
+        if (string.IsNullOrWhiteSpace(internalGuid)) return;
+
+        var meta = new DevicePreferenceStore.DeviceMetadata(customName, customDescription);
+        _deviceMetadataMap[internalGuid] = meta;
+        
+        if (_devices.TryGetValue(internalGuid, out DeviceModel? device))
+        {
+            if (!string.IsNullOrWhiteSpace(customName)) device.Name = customName;
+            if (!string.IsNullOrWhiteSpace(customDescription)) device.Description = customDescription;
+        }
+        
+        PersistPreferences();
+        DevicesChanged?.Invoke();
     }
+
+    public void RegisterManualDevice(string ip, int port)
+    {
+        if (string.IsNullOrWhiteSpace(ip)) return;
+
+        // MD5 해시를 이용한 수동 등록 장치용 고유 ID 생성
+        using var md5 = System.Security.Cryptography.MD5.Create();
+        byte[] hash = md5.ComputeHash(Encoding.UTF8.GetBytes($"{ip}:{port}"));
+        string internalGuid = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+
+        var device = new DeviceModel
+        {
+            Name = $"Manual: {ip}",
+            DeviceId = $"M-{internalGuid[..8].ToUpperInvariant()}",
+            DeviceCode = $"M-{internalGuid[..8].ToUpperInvariant()}",
+            InternalGuid = internalGuid,
+            Description = $"수동으로 등록된 장치 ({ip}:{port})",
+            Status = DeviceStatus.Online,
+            IsFavorite = false,
+            Endpoints =
+            [
+                new DeviceEndpoint { Address = ip, Port = port, Scope = DeviceEndpointScope.Public }
+            ],
+            Capabilities = ["Manual Connection", "File Transfer", "Screen Control"]
+        };
+
+        UpsertDevice(device);
+        DevicesChanged?.Invoke();
+    }
+
 
     private DeviceModel CreateLocalDeviceModel()
     {
@@ -1072,5 +1555,13 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         parameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, Math.Clamp(jpegQuality, 1, 100));
         bitmap.Save(stream, jpegCodec, parameters);
         return stream.ToArray();
+    }
+
+    private static byte[] Combine(byte[] first, byte[] second)
+    {
+        byte[] combined = new byte[first.Length + second.Length];
+        Buffer.BlockCopy(first, 0, combined, 0, first.Length);
+        Buffer.BlockCopy(second, 0, combined, first.Length, second.Length);
+        return combined;
     }
 }

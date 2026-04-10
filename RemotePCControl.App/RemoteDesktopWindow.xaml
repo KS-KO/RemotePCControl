@@ -101,7 +101,7 @@
 
                     <UniformGrid Grid.Column="1"
                                  Rows="1"
-                                 Columns="5"
+                                 Columns="6"
                                  HorizontalAlignment="Stretch">
                     <Button Style="{StaticResource RemoteShortcutButtonStyle}"
                             Content="Start"
@@ -110,15 +110,18 @@
                             Content="Run"
                             Click="RunButton_Click" />
                     <Button Style="{StaticResource RemoteShortcutButtonStyle}"
-                            Content="Task Manager"
+                            Content="Task Mgr"
                             Click="TaskManagerButton_Click" />
                     <Button Style="{StaticResource RemoteShortcutButtonStyle}"
                             Content="Alt+Tab"
                             Click="AltTabButton_Click" />
                     <Button Style="{StaticResource RemoteShortcutButtonStyle}"
-                            Margin="0"
                             Content="Esc"
                             Click="EscapeButton_Click" />
+                    <Button Style="{StaticResource RemoteShortcutButtonStyle}"
+                            Margin="0"
+                            Content="Fullscreen"
+                            Click="FullscreenButton_Click" />
                     </UniformGrid>
                 </Grid>
             </Grid>
