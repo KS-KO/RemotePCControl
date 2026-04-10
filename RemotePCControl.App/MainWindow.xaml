@@ -11,6 +11,13 @@
         MinWidth="1220"
         MinHeight="760"
         WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+    </Window.Resources>
+    
+    <Window.InputBindings>
+        <KeyBinding Key="V" Modifiers="Control" Command="{Binding PasteRemoteClipboardCommand}" />
+    </Window.InputBindings>
     <Grid Background="{StaticResource SidebarBackgroundBrush}">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="280" />
@@ -103,17 +110,35 @@
 
                     <Border Grid.Column="1" VerticalAlignment="Center" Padding="16,8" CornerRadius="12" Background="{StaticResource AccentMutedBrush}">
                         <StackPanel Orientation="Horizontal">
-                            <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}" Margin="0,0,8,0" />
+                            <Ellipse Width="8" Height="8" Margin="0,0,8,0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="{StaticResource SubtleTextBrush}" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding ActiveSessionStatusColor}" Value="SuccessBrush">
+                                                <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ActiveSessionStatusColor}" Value="WarningBrush">
+                                                <Setter Property="Fill" Value="{StaticResource WarningBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding ActiveSessionStatusColor}" Value="ErrorBrush">
+                                                <Setter Property="Fill" Value="{StaticResource ErrorBrush}" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
                             <TextBlock Text="{Binding ActiveSessionStatus}" FontWeight="SemiBold" />
                         </StackPanel>
                     </Border>
                 </Grid>
             </Border>
 
-            <!-- Content Switcher -->
-            <Grid Grid.Row="1" Margin="32">
-                <!-- Group 0: Dashboard -->
-                <Grid x:Name="DashboardView">
+            <!-- Content Switcher with Scrolling Support -->
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <Grid Margin="32">
+                    <!-- Group 0: Dashboard -->
+                    <Grid x:Name="DashboardView">
                     <Grid.Style>
                         <Style TargetType="Grid">
                             <Setter Property="Visibility" Value="Collapsed" />
@@ -148,9 +173,9 @@
                         <Border Style="{StaticResource CardBorderStyle}">
                             <StackPanel>
                                 <TextBlock Text="Build Metadata" Foreground="{StaticResource SubtleTextBrush}" />
-                                <TextBlock Text="{Binding BuildProfile}" FontWeight="SemiBold" Margin="0,12,0,0" />
-                                <TextBlock Text="{Binding ArchitectureProfile}" Margin="0,4,0,0" />
-                                <TextBlock Text="{Binding UiArchitecture}" Margin="0,4,0,0" />
+                                <TextBlock Text="{Binding BuildProfile}" FontWeight="SemiBold" Margin="0,12,0,0" Foreground="White" />
+                                <TextBlock Text="{Binding ArchitectureProfile}" Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" />
+                                <TextBlock Text="{Binding UiArchitecture}" Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" />
                             </StackPanel>
                         </Border>
                     </UniformGrid>
@@ -168,7 +193,7 @@
                                     <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
                                 <TextBlock Text="Recent Activity" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
-                                <ListBox Grid.Row="1" ItemsSource="{Binding SessionLogs}" Margin="0,0,-12,0">
+                                <ListBox Grid.Row="1" ItemsSource="{Binding SessionLogs}" Margin="0,0,-12,0" MaxHeight="480" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <Border Margin="0,0,12,12" Padding="16" Background="#0F172A" CornerRadius="12" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}">
@@ -180,7 +205,7 @@
                                                     <Border Width="4" Height="32" Background="{StaticResource AccentBrush}" CornerRadius="2" Margin="0,0,16,0" />
                                                     <StackPanel Grid.Column="1">
                                                         <DockPanel>
-                                                            <TextBlock Text="{Binding Title}" FontWeight="Bold" />
+                                                            <TextBlock Text="{Binding Title}" FontWeight="Bold" Foreground="White" />
                                                             <TextBlock Text="{Binding TimestampLabel}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="{StaticResource SubtleTextBrush}" FontSize="12" />
                                                         </DockPanel>
                                                         <TextBlock Text="{Binding Message}" Foreground="{StaticResource SubtleTextBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
@@ -210,8 +235,35 @@
 
                             <Border Style="{StaticResource CardBorderStyle}">
                                 <StackPanel>
-                                    <TextBlock Text="Last Session Info" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
-                                    <TextBlock Text="{Binding LastActionSummary}" TextWrapping="Wrap" />
+                                    <TextBlock Text="Internet Relay (Beta)" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                    <TextBlock Text="Relay Server IP" Foreground="{StaticResource SubtleTextBrush}" />
+                                    <TextBox Text="{Binding RelayIp, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,12" />
+                                    
+                                    <TextBlock Text="Relay Code (6 chars)" Foreground="{StaticResource SubtleTextBrush}" />
+                                    <Grid Margin="0,4,0,16">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Text="{Binding RelayCode, UpdateSourceTrigger=PropertyChanged}" FontSize="18" FontWeight="Bold" HorizontalContentAlignment="Center" MaxLength="6" />
+                                        <Button Grid.Column="1" Content="Start Host" Command="{Binding StartRelayHostCommand}" Margin="8,0,0,0" Padding="12,0" Background="{StaticResource SuccessBrush}" />
+                                    </Grid>
+                                    
+                                    <Button Content="Connect via Relay" Command="{Binding ConnectViaRelayCommand}" Background="{StaticResource AccentBrush}" HorizontalAlignment="Stretch" />
+                                    <TextBlock Text="인터넷 연결을 위해 릴레이 서버를 거쳐 통신합니다." 
+                                               Foreground="{StaticResource SubtleTextBrush}" FontSize="11" 
+                                               Margin="0,12,0,4" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
+                                    <TextBlock Text="* 연결 성공 시 원격 화면 창이 별도로 열립니다." 
+                                               Foreground="{StaticResource AccentMutedBrush}" FontSize="10" 
+                                               Margin="0,0,0,8" HorizontalAlignment="Center" FontStyle="Italic" />
+                                </StackPanel>
+                            </Border>
+                             
+
+                            <Border Style="{StaticResource CardBorderStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Last Session Info" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" Foreground="White" />
+                                    <TextBlock Text="{Binding LastActionSummary}" TextWrapping="Wrap" Foreground="{StaticResource SubtleTextBrush}" />
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -286,9 +338,21 @@
                                                         <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="16" />
                                                         <TextBlock Text="{Binding DeviceId}" Foreground="{StaticResource SubtleTextBrush}" FontSize="12" Margin="0,4,0,0" />
                                                     </StackPanel>
-                                                    <Border Grid.Column="1" Padding="12,4" CornerRadius="999" Background="{Binding StatusBrush}" VerticalAlignment="Center">
-                                                        <TextBlock Text="{Binding StatusLabel}" Foreground="White" FontSize="11" FontWeight="Bold" />
-                                                    </Border>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <Button Command="{Binding DataContext.RemoveDeviceCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                                CommandParameter="{Binding}"
+                                                                Content="✕" 
+                                                                Foreground="#EF4444" 
+                                                                Background="Transparent" 
+                                                                BorderThickness="0"
+                                                                FontSize="14" 
+                                                                Padding="8,4"
+                                                                ToolTip="장치 삭제"
+                                                                Margin="0,0,8,0" />
+                                                        <Border Padding="12,4" CornerRadius="999" Background="{Binding StatusBrush}">
+                                                            <TextBlock Text="{Binding StatusLabel}" Foreground="White" FontSize="11" FontWeight="Bold" />
+                                                        </Border>
+                                                    </StackPanel>
                                                 </Grid>
                                             </Border>
                                         </DataTemplate>
@@ -337,7 +401,15 @@
                                             <TextBox Text="{Binding EditDeviceName}" Margin="0,4,0,12" />
                                             <TextBlock Text="Description" FontSize="11" Foreground="{StaticResource SubtleTextBrush}" />
                                             <TextBox Text="{Binding EditDeviceDescription}" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="60" />
-                                            <Button Command="{Binding UpdateDeviceMetadataCommand}" Content="Save Changes" HorizontalAlignment="Stretch" Margin="0,12,0,0" />
+                                            <Grid Margin="0,12,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="2*" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Button Command="{Binding UpdateDeviceMetadataCommand}" Content="Save Changes" HorizontalAlignment="Stretch" />
+                                                <Button Grid.Column="1" Command="{Binding RemoveDeviceCommand}" CommandParameter="{Binding SelectedDevice}" 
+                                                        Content="Delete" Background="{StaticResource ErrorBrush}" Margin="8,0,0,0" HorizontalAlignment="Stretch" />
+                                            </Grid>
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>
@@ -440,9 +512,31 @@
                                     <StackPanel>
                                         <TextBlock Text="Transfer Status" FontSize="12" FontWeight="Bold" Foreground="{StaticResource SubtleTextBrush}" Margin="0,0,0,8" />
                                         <TextBlock Text="{Binding TransferSummary}" TextWrapping="Wrap" />
-                                        <TextBlock Text="{Binding StatusMessage}" Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" TextWrapping="Wrap" />
+                                        
+                                        <Grid Margin="0,12,0,0" Visibility="{Binding IsTransferActive, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <ProgressBar Height="10" Maximum="100" Value="{Binding DownloadProgress}" Background="#1E293B" Foreground="{StaticResource SuccessBrush}" BorderThickness="0" VerticalAlignment="Center" />
+                                            <Button Grid.Column="1" Command="{Binding CancelTransferCommand}" Content="Cancel" Padding="8,2" Margin="12,0,0,0" FontSize="11" Background="{StaticResource ErrorBrush}" Height="24" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" />
+                                        </Grid>
+                                        
+                                        <TextBlock Text="{Binding StatusMessage}" Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" FontSize="11" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
+
+                                <StackPanel Margin="0,20,0,0">
+                                    <TextBlock Text="Download Path" FontSize="12" FontWeight="Bold" Foreground="{StaticResource SubtleTextBrush}" Margin="0,0,0,8" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Text="{Binding DownloadPath}" IsReadOnly="True" FontSize="11" VerticalAlignment="Center" />
+                                        <Button Grid.Column="1" Command="{Binding BrowseDownloadPathCommand}" Content="···" Padding="8,0" Margin="8,0,0,0" Height="28" Width="36" />
+                                    </Grid>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -487,7 +581,7 @@
                                         <Border Margin="0,0,8,12" Padding="16" CornerRadius="12" Background="#0F172A" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}">
                                             <StackPanel>
                                                 <DockPanel>
-                                                    <TextBlock Text="{Binding DeviceName}" FontWeight="Bold" />
+                                                    <TextBlock Text="{Binding DeviceName}" FontWeight="Bold" Foreground="White" />
                                                     <TextBlock Text="{Binding LastConnectedLabel}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="{StaticResource SubtleTextBrush}" FontSize="12" />
                                                 </DockPanel>
                                                 <TextBlock Text="{Binding DeviceCode}" Foreground="{StaticResource SubtleTextBrush}" Margin="0,4,0,0" />
@@ -508,13 +602,13 @@
                                 <RowDefinition Height="*" />
                             </Grid.RowDefinitions>
                             <TextBlock Text="Full Audit Log" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" />
-                            <ListBox Grid.Row="1" ItemsSource="{Binding SessionLogs}" Margin="0,0,-12,0">
+                            <ListBox Grid.Row="1" ItemsSource="{Binding SessionLogs}" Margin="0,0,-12,0" MaxHeight="600" ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <ListBox.ItemTemplate>
                                     <DataTemplate>
                                         <Border Margin="0,0,12,12" Padding="20" Background="#0F172A" CornerRadius="16">
                                             <StackPanel>
                                                 <DockPanel>
-                                                    <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
+                                                    <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="Bold" Foreground="{StaticResource SuccessBrush}" />
                                                     <TextBlock Text="{Binding TimestampLabel}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="{StaticResource SubtleTextBrush}" />
                                                 </DockPanel>
                                                 <TextBlock Text="{Binding Message}" Margin="0,12,0,0" TextWrapping="Wrap" FontSize="14" />
@@ -528,8 +622,8 @@
                     </Border>
                     </Grid>
                 </Grid>
-                
             </Grid>
-        </Grid>
+        </ScrollViewer>
     </Grid>
+</Grid>
 </Window>

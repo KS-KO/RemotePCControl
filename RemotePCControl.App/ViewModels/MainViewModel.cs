@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Windows;
+using System.IO;
 using RemotePCControl.App.Infrastructure;
 using RemotePCControl.App.Models;
 using RemotePCControl.App.Services;
@@ -25,15 +26,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly RelayCommand _browseRedirectedDrivesCommand;
     private readonly RelayCommand _browseRemoteFilesCommand;
     private readonly RelayCommand<FileEntry> _navigateIntoFolderCommand;
+    private readonly RelayCommand<BreadcrumbItem> _navigateToBreadcrumbCommand;
     private readonly RelayCommand<FileEntry> _downloadSelectedFileCommand;
+    private readonly RelayCommand _startRelayHostCommand;
+    private readonly RelayCommand _connectViaRelayCommand;
     private readonly RelayCommand _lockRemoteSessionCommand;
     private readonly RelayCommand _toggleRemoteInputBlockCommand;
     private readonly IRelayCommand _pasteRemoteClipboardCommand;
+    private readonly RelayCommand _cancelTransferCommand;
+    private readonly RelayCommand _browseDownloadPathCommand;
     private readonly RelayCommand _toggleLocalDriveCommand;
     private readonly RelayCommand _toggleFavoriteCommand;
     private readonly RelayCommand _useRecentConnectionCommand;
     private readonly RelayCommand _updateDeviceMetadataCommand;
     private readonly RelayCommand _registerManualDeviceCommand;
+    private readonly RelayCommand<DeviceModel> _removeDeviceCommand;
     private DeviceModel? _selectedDevice;
     private RecentConnectionEntry? _selectedRecentConnection;
     private CaptureDisplayOption? _selectedCaptureDisplay;
@@ -60,7 +67,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _cpuUsageText = "CPU: collecting...";
     private string _memoryUsageText = "Memory: collecting...";
     private string _currentRemotePath = string.Empty;
+    private string _downloadPath = string.Empty;
     private double _downloadProgress;
+    private bool _isTransferActive;
     private string _editDeviceName = string.Empty;
     private string _editDeviceDescription = string.Empty;
     private string _manualRegisterIP = "127.0.0.1";
@@ -105,7 +114,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _browseRedirectedDrivesCommand = new RelayCommand(BrowseRedirectedDrives, () => ActiveSessionStatus is not "Idle");
         _browseRemoteFilesCommand = new RelayCommand(BrowseRemoteFiles, () => ActiveSessionStatus is not "Idle");
         _navigateIntoFolderCommand = new RelayCommand<FileEntry>(NavigateIntoFolder);
+        _navigateToBreadcrumbCommand = new RelayCommand<BreadcrumbItem>(NavigateToBreadcrumb);
         _downloadSelectedFileCommand = new RelayCommand<FileEntry>(DownloadSelectedFile);
+        _startRelayHostCommand = new RelayCommand(StartRelayHost);
+        _connectViaRelayCommand = new RelayCommand(ConnectViaRelay);
         _toggleLocalDriveCommand = new RelayCommand(ToggleLocalDrive, () => SelectedDevice is not null);
         _toggleFavoriteCommand = new RelayCommand(ToggleFavorite, () => SelectedDevice is not null);
         _useRecentConnectionCommand = new RelayCommand(UseRecentConnection, () => SelectedRecentConnection is not null);
@@ -114,6 +126,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _lockRemoteSessionCommand = new RelayCommand(LockRemoteSession, () => ActiveSessionStatus != "Idle");
         _toggleRemoteInputBlockCommand = new RelayCommand(ToggleRemoteInputBlock, () => ActiveSessionStatus != "Idle");
         _pasteRemoteClipboardCommand = new AsyncRelayCommand(PasteRemoteClipboardAsync, () => ActiveSessionStatus == "Connected" && IsCtrlCopyEnabled);
+        _cancelTransferCommand = new RelayCommand(CancelTransfer, () => IsTransferActive);
+        _browseDownloadPathCommand = new RelayCommand(BrowseDownloadPath);
+        _removeDeviceCommand = new RelayCommand<DeviceModel>(RemoveDevice);
+
+        DownloadPath = _remoteSessionService.GetDownloadPath();
 
         SelectedDevice = Devices.FirstOrDefault();
         SelectedCaptureDisplay = CaptureDisplays.FirstOrDefault();
@@ -146,13 +163,57 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ObservableCollection<SessionLogEntry> SessionLogs { get; }
 
     public ObservableCollection<RecentConnectionEntry> RecentConnections { get; }
-    public ObservableCollection<string> Breadcrumbs { get; } = ["Root"];
+    public ObservableCollection<BreadcrumbItem> Breadcrumbs { get; } = [new BreadcrumbItem("Root", string.Empty)];
     public ObservableCollection<FileEntry> RemoteFiles { get; } = [];
+
+    private string _relayCode = string.Empty;
+    public string RelayCode
+    {
+        get => _relayCode;
+        set => SetProperty(ref _relayCode, value);
+    }
+
+    private string _relayIp = "127.0.0.1"; // Default for local test
+    public string RelayIp
+    {
+        get => _relayIp;
+        set => SetProperty(ref _relayIp, value);
+    }
 
     public double DownloadProgress
     {
         get => _downloadProgress;
-        set => SetProperty(ref _downloadProgress, value);
+        set
+        {
+            if (SetProperty(ref _downloadProgress, value))
+            {
+                IsTransferActive = value > 0 && value < 100;
+            }
+        }
+    }
+
+    public bool IsTransferActive
+    {
+        get => _isTransferActive;
+        set
+        {
+            if (SetProperty(ref _isTransferActive, value))
+            {
+                _cancelTransferCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public string DownloadPath
+    {
+        get => _downloadPath;
+        set
+        {
+            if (SetProperty(ref _downloadPath, value))
+            {
+                _remoteSessionService.SetDownloadPath(value);
+            }
+        }
     }
 
     public string CurrentRemotePath
@@ -185,7 +246,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public RelayCommand BrowseRemoteFilesCommand => _browseRemoteFilesCommand;
     public RelayCommand<FileEntry> NavigateIntoFolderCommand => _navigateIntoFolderCommand;
+    public RelayCommand<BreadcrumbItem> NavigateToBreadcrumbCommand => _navigateToBreadcrumbCommand;
     public RelayCommand<FileEntry> DownloadSelectedFileCommand => _downloadSelectedFileCommand;
+    public RelayCommand StartRelayHostCommand => _startRelayHostCommand;
+    public RelayCommand ConnectViaRelayCommand => _connectViaRelayCommand;
+    public RelayCommand<DeviceModel> RemoveDeviceCommand => _removeDeviceCommand;
     public RelayCommand ToggleLocalDriveCommand => _toggleLocalDriveCommand;
 
     public RelayCommand ToggleFavoriteCommand => _toggleFavoriteCommand;
@@ -195,6 +260,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand LockRemoteSessionCommand => _lockRemoteSessionCommand;
     public RelayCommand ToggleRemoteInputBlockCommand => _toggleRemoteInputBlockCommand;
     public IRelayCommand PasteRemoteClipboardCommand => _pasteRemoteClipboardCommand;
+    public RelayCommand CancelTransferCommand => _cancelTransferCommand;
+    public RelayCommand BrowseDownloadPathCommand => _browseDownloadPathCommand;
 
     public string BuildProfile => "Framework: .NET 9";
 
@@ -366,9 +433,19 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _activeSessionStatus, value))
             {
                 NotifyCommandStates();
+                RaisePropertyChanged(nameof(ActiveSessionStatusColor));
             }
         }
     }
+
+    public string ActiveSessionStatusColor => ActiveSessionStatus switch
+    {
+        "Connected" => "SuccessBrush",
+        "Connecting" => "WarningBrush",
+        "Pending" => "WarningBrush",
+        "Idle" => "SubtleTextBrush",
+        _ => "ErrorBrush"
+    };
 
     public string LastActionSummary
     {
@@ -691,15 +768,35 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Application.Current.Dispatcher.Invoke(() =>
         {
             Breadcrumbs.Clear();
-            Breadcrumbs.Add("Root");
+            Breadcrumbs.Add(new BreadcrumbItem("Root", string.Empty));
             if (string.IsNullOrWhiteSpace(path)) return;
 
             string[] parts = path.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries);
+            string cumulativePath = string.Empty;
+            
+            // 윈도우 드라이브 대응 (C:)
+            bool isFirst = true;
+
             foreach (var part in parts)
             {
-                Breadcrumbs.Add(part);
+                if (isFirst && part.Contains(':'))
+                {
+                    cumulativePath = part + "\\";
+                    isFirst = false;
+                }
+                else
+                {
+                    cumulativePath = Path.Combine(cumulativePath, part);
+                }
+                Breadcrumbs.Add(new BreadcrumbItem(part, cumulativePath));
             }
         });
+    }
+
+    private void NavigateToBreadcrumb(BreadcrumbItem? item)
+    {
+        if (item == null) return;
+        _remoteSessionService.RequestFileSystemList(item.Path);
     }
 
     private async void DownloadSelectedFile(FileEntry? entry)
@@ -732,6 +829,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private async Task PasteRemoteClipboardAsync()
     {
         await _remoteSessionService.DownloadClipboardFilesAsync().ConfigureAwait(false);
+    }
+
+    private void BrowseDownloadPath()
+    {
+        var dialog = new Microsoft.Win32.OpenFolderDialog();
+        dialog.Title = "Select File Download Destination";
+        if (dialog.ShowDialog() == true)
+        {
+            DownloadPath = dialog.FolderName;
+        }
+    }
+
+    private void CancelTransfer()
+    {
+        _remoteSessionService.CancelCurrentFileTransfer();
+        DownloadProgress = 0;
+        IsTransferActive = false;
+        TransferSummary = "File transfer cancelled by user.";
     }
 
     private void ToggleFavorite()
@@ -806,6 +921,44 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         DeviceLookupSummary = $"{SelectedRecentConnection.DeviceName} 최근 연결 기록을 입력값으로 복원했습니다.";
         LastActionSummary = "Loaded recent connection";
         StatusMessage = "현재 목록에서 장치를 찾지 못해 장치 코드만 복원했습니다.";
+    }
+
+    private async void StartRelayHost()
+    {
+        if (string.IsNullOrWhiteSpace(RelayCode))
+        {
+            StatusMessage = "릴레이 코드를 입력해 주세요.";
+            return;
+        }
+
+        try
+        {
+            await _remoteSessionService.StartRelayHostAsync(RelayIp, 9000, RelayCode);
+            StatusMessage = "릴레이 서버에서 대기 중입니다...";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Relay Host Error: {ex.Message}";
+        }
+    }
+
+    private async void ConnectViaRelay()
+    {
+        if (string.IsNullOrWhiteSpace(RelayCode))
+        {
+            StatusMessage = "연결할 릴레이 코드를 입력해 주세요.";
+            return;
+        }
+
+        try
+        {
+            await _remoteSessionService.ConnectViaRelayAsync(RelayIp, 9000, RelayCode);
+            StatusMessage = "릴레이 서버를 통해 연결 시도 중...";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Relay Connect Error: {ex.Message}";
+        }
     }
 
     private void ApplySnapshot(ConnectionSnapshot snapshot)
@@ -961,6 +1114,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         RaisePropertyChanged(nameof(OnlineDeviceCount));
     }
 
+    private void RemoveDevice(DeviceModel? device)
+    {
+        if (device == null) return;
+        
+        var result = MessageBox.Show($"정말로 장치 '{device.Name}'를 삭제하시겠습니까?", "장치 삭제 확인", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result == MessageBoxResult.Yes)
+        {
+            _remoteSessionService.RemoveDevice(device.DeviceId);
+            Devices.Remove(device);
+            if (SelectedDevice == device)
+            {
+                SelectedDevice = Devices.FirstOrDefault();
+            }
+            AddLog("Device Removed", $"장치 '{device.Name}'가 목록에서 삭제되었습니다.", "Infrastructure");
+            NotifyCommandStates();
+        }
+    }
+
     private void NotifyCommandStates()
     {
         _quickConnectCommand.NotifyCanExecuteChanged();
@@ -1005,3 +1176,5 @@ public class ProgressToVisibilityConverter : System.Windows.Data.IValueConverter
         throw new NotImplementedException();
     }
 }
+
+public record BreadcrumbItem(string Name, string Path);

@@ -42,6 +42,7 @@ public interface IRemoteSessionService
     void ToggleFavorite(string internalGuid);
     void UpdateDeviceMetadata(string internalGuid, string? customName, string? customDescription);
     void RegisterManualDevice(string ip, int port);
+    void RemoveDevice(string deviceId);
 
     DuplicateCheckResult GetDuplicateCheckResult();
 
@@ -67,4 +68,11 @@ public interface IRemoteSessionService
     void SetCtrlCopyEnabled(bool enabled);
     Task DownloadClipboardFilesAsync();
     void RequestResolutionChange(int width, int height);
+
+    // Phase D: 인터넷 확장 (Relay)
+    Task StartRelayHostAsync(string relayIp, int relayPort, string code);
+    Task ConnectViaRelayAsync(string relayIp, int relayPort, string code);
+    void SetDownloadPath(string path);
+    void CancelCurrentFileTransfer();
+    string GetDownloadPath();
 }

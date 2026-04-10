@@ -39,6 +39,7 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - 화상회의, 협업 채팅, 문서 공동 편집 등 협업 플랫폼 기능 제공
 - 대규모 SaaS 운영을 위한 청구, 라이선스, 테넌트 관리 기능 제공
 
+
 ## 6. 대상 사용자
 ### 1차 사용자
 - 외부에서 본인 PC에 접속하려는 개인 사용자
@@ -352,3 +353,16 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
     - **Hierarchy**: 복잡한 기능을 대시보드(Dashboard), 장치 목록(Devices), 세션 로그(Logs) 등으로 메뉴화하여 인지 부하 감소.
     - **Components**: 카드형 인터페이스, 부드러운 모서리(Rounded Corners), Glassmorphism 효과, 호버 애니메이션 적용.
     - **Visibility**: 중요 상태(연결 정보, 리소스 상태)를 시각적으로 더 명확하게 강조.
+
+## 20. Implementation Update Summary (Latest)
+- **FR-8 (Shell-based File Copy)**: `Ctrl+C` / `Ctrl+V` 조합키를 통한 파일 전송 흐름 구현 완료.
+  - 뷰어 창에서 로컬 파일 붙여넣기 시 원격지로 즉시 자동 업로드 수행.
+  - 대시보드 등 메인 창에서 `Ctrl+V` 시 원격지에서 복사된 파일 목록을 자동 다운로드.
+- **FR-10 (세션 상태 정보)**: 실시간 RTT(Round Trip Time) 측정 및 품질 시각화 구현 완료.
+  - 5초 주기의 Ping/Pong 핸드셰이크를 통해 실시간 지연 측정 및 품질 등급(Excellent~Poor) 반영.
+- **Phase B (Host-driven Approval)**: 원격 호스트 주도형 연결 승인 워크플로우 구현 완료.
+  - `ConnectionSetup` 프로토콜 기반 호스트 명시적 승인 전 세션 활성화 차단.
+- **Phase C (UX Polish & Advanced Transfer)**: 사용자 경험 및 리소스 관리 고도화.
+  - **파일 전송**: 다운로드 경로 사용자 지정 가능, 전송 진행률 표시 및 사용자 취소(`CancellationToken`) 기능 지원.
+  - **시각화**: 상단 상태바에 동적 표시등(Connected/Pending/Idle) 및 사이드바 리소스 통계 패널 추가.
+  - **Git 텔레메트리**: 현재 빌드의 Git Commit Hash 및 버전 정보 자동 추적 및 노출.

@@ -72,14 +72,14 @@
 - 보안 시나리오 기준 최초 신뢰 등록, 지문 불일치 차단, 재시작 후 인증서 유지 검증
 - 테스트 결과를 PRD 및 Resilience 문서의 기록 표에 반영
 
-### Phase B: 연결 승인 워크플로우 고도화
-- `Support request`를 host-driven 승인/응답 채널로 확장
-- 승인 결과와 보안 신뢰 흐름을 하나의 운영 시나리오로 정리
-- 세션 상태 텍스트와 감사 로그의 운영 문구 정제
+### Phase B: 연결 승인 워크플로우 고도화 (Completed)
+- `Support request`를 host-driven 승인/응답 채널로 확장 (Done)
+- 승인 결과와 보안 신뢰 흐름을 하나의 운영 시나리오로 정리 (Done)
+- 세션 상태 텍스트와 감사 로그의 운영 문구 정제 (Done)
 
-### Phase C: 사용자 경험 고도화
-- measured latency 및 품질 상태 표시 추가
-- 파일 전송 UX 개선: 저장 위치 선택, 취소, 대용량 전송 예외 처리
+### Phase C: 사용자 경험 고도화 (Progressing)
+- measured latency 및 품질 상태 표시 추가 (Done)
+- 파일 전송 UX 개선: Ctrl+C/V 기반 자동 업로드/다운로드 핸들링(FR-8) 구현 완료 (Done)
 - 로컬 드라이브 리디렉션의 폴더 선택/노출 범위 제어 고도화
 
 ### Phase D: 확장 구조 결정

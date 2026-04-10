@@ -19,25 +19,25 @@ public sealed class DeviceModel : ObservableObject
         set => SetProperty(ref _trustedThumbprint, value);
     }
 
-    public required string Name
+    public string Name
     {
         get => _name;
         set => SetProperty(ref _name, value);
     }
 
-    public required string DeviceId { get; init; }
+    public string DeviceId { get; init; } = string.Empty;
 
-    public required string DeviceCode { get; init; }
+    public string DeviceCode { get; init; } = string.Empty;
 
-    public required string InternalGuid { get; init; }
+    public string InternalGuid { get; init; } = Guid.NewGuid().ToString();
 
-    public required string Description
+    public string Description
     {
         get => _description;
         set => SetProperty(ref _description, value);
     }
 
-    public required List<DeviceEndpoint> Endpoints { get; init; }
+    public List<DeviceEndpoint> Endpoints { get; init; } = [];
 
     public string LastSeenLabel
     {
@@ -45,7 +45,7 @@ public sealed class DeviceModel : ObservableObject
         set => SetProperty(ref _lastSeenLabel, value);
     }
 
-    public required List<string> Capabilities { get; init; }
+    public List<string> Capabilities { get; init; } = [];
 
     public DeviceStatus Status
     {

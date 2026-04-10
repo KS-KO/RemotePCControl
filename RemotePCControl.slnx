@@ -5,4 +5,5 @@
   <Project Path="RemotePCControl.App/RemotePCControl.App.csproj">
     <Platform Project="x64" />
   </Project>
+  <Project Path="RemotePCControl.RelayServer/RemotePCControl.RelayServer.csproj" />
 </Solution>

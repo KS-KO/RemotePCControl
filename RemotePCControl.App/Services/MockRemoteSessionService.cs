@@ -318,4 +318,31 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
     public void RequestResolutionChange(int width, int height)
     {
     }
+
+    public void SetDownloadPath(string path)
+    {
+    }
+
+    public void CancelCurrentFileTransfer()
+    {
+    }
+
+    public string GetDownloadPath()
+    {
+        return string.Empty;
+    }
+
+    public Task StartRelayHostAsync(string relayIp, int relayPort, string code)
+    {
+        return Task.CompletedTask;
+    }
+
+    public Task ConnectViaRelayAsync(string relayIp, int relayPort, string code)
+    {
+        return Task.CompletedTask;
+    }
+
+    public void RemoveDevice(string deviceId)
+    {
+    }
 }

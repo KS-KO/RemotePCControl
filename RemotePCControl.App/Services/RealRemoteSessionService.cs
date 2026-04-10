@@ -11,6 +11,7 @@ using System.Net;
 using System.Net.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -52,6 +53,13 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     private const byte BlockInputPacketType = 0x0F;
     private const byte ClipboardFilesPacketType = 0x10;
     private const byte ResolutionChangePacketType = 0x11;
+    private const byte ConnectionSetupPacketType = 0x12;
+    private const byte ConnectionSetupResponsePacketType = 0x13;
+    private const byte PingPacketType = 0x14;
+    private const byte PongPacketType = 0x15;
+    private const byte RelayHostPacketType = 0x30;
+    private const byte RelayConnectPacketType = 0x31;
+    private const byte RelayErrorPacketType = 0x32;
 
     private readonly TcpConnectionManager _tcpManager;
     private readonly ScreenCaptureService _captureService;
@@ -107,6 +115,14 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     private long _receivingFileSize = 0;
     private long _receivedBytes = 0;
     private DevicePreferenceStore.LastKnownConnectionInfo? _lastKnownConnection;
+    private bool _isSessionApproved;
+    private long _lastMeasuredRttMs = -1;
+    private CancellationTokenSource? _telemetryCts;
+    private CancellationTokenSource? _fileTransferCts;
+    private string _customDownloadPath = string.Empty;
+    private ConnectionSnapshot _activeSnapshot = new() { SessionTitle = "Idle", SessionDetail = "No active session", Status = "Idle", QualityPercent = 0, QualitySummary = "N/A" };
+    private int _connectionQualityPercent;
+    private string _connectionQualitySummary = "N/A";
     private bool _isDisposed;
 
     public RealRemoteSessionService()
@@ -490,6 +506,113 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         };
         _logStore.SaveLog(entry);
         return entry;
+    }
+
+    public async Task StartRelayHostAsync(string relayIp, int relayPort, string code)
+    {
+        PublishLog("Relay Host", $"릴레이 서버({relayIp})를 통해 세션을 대기합니다. 코드: {code}", "Relay Setup");
+        try
+        {
+            TcpClient client = new TcpClient();
+            await client.ConnectAsync(relayIp, relayPort).ConfigureAwait(false);
+            var session = new TcpSession(client, client.GetStream());
+            byte[] codeBytes = Encoding.UTF8.GetBytes(code);
+            byte[] packet = new byte[codeBytes.Length + 1];
+            packet[0] = RelayHostPacketType;
+            codeBytes.CopyTo(packet, 1);
+            await session.SendAsync(packet).ConfigureAwait(false);
+            _currentSession = session;
+            _currentSession.OnMessageReceived += (s, data) => 
+            {
+                if (data.Length >= 2 && data.Span[0] == RelayConnectPacketType && data.Span[1] == 0x02)
+                {
+                    PublishLog("Relay Session Active", "릴레이 서버를 통해 상대방이 연결되었습니다.", "Relay Connect");
+                    StartHostSessionInternal(s);
+                }
+                else HandleSessionMessage(s, data);
+            };
+            _currentSession.OnDisconnected += OnSessionDisconnected;
+            _currentSession.StartReceiving();
+        }
+        catch (Exception ex)
+        {
+            PublishLog("Relay Error", $"릴레이 연결 실패: {ex.Message}", "Network Error");
+            throw;
+        }
+    }
+
+    public async Task ConnectViaRelayAsync(string relayIp, int relayPort, string code)
+    {
+        PublishLog("Relay Connect", $"릴레이 서버({relayIp})를 통해 원격지에 접속합니다. 코드: {code}", "Relay Setup");
+        try
+        {
+            TcpClient client = new TcpClient();
+            await client.ConnectAsync(relayIp, relayPort).ConfigureAwait(false);
+            var session = new TcpSession(client, client.GetStream());
+            byte[] codeBytes = Encoding.UTF8.GetBytes(code);
+            byte[] packet = new byte[codeBytes.Length + 1];
+            packet[0] = RelayConnectPacketType;
+            codeBytes.CopyTo(packet, 1);
+            await session.SendAsync(packet).ConfigureAwait(false);
+            _currentSession = session;
+            _currentSession.OnDisconnected += OnSessionDisconnected;
+            _currentSession.OnMessageReceived += HandleSessionMessage;
+            _currentSession.StartReceiving();
+            PublishSnapshot(new ConnectionSnapshot { Status = "Connecting", SessionTitle = "Relay Connecting", SessionDetail = "릴레이 서버를 통한 세션 협상 중...", QualityPercent = 0, QualitySummary = "Establishing tunnel" });
+            _ = SendConnectionSetupAsync(session);
+        }
+        catch (Exception ex)
+        {
+            PublishLog("Relay Error", $"릴레이 연결 실패: {ex.Message}", "Network Error");
+            throw;
+        }
+    }
+
+    private void StartHostSessionInternal(TcpSession session)
+    {
+        session.OnMessageReceived -= HandleSessionMessage;
+        session.OnMessageReceived += HandleSessionMessage;
+        PublishSnapshot(new ConnectionSnapshot { Status = "Pending", SessionTitle = "Relay Host Waiting", SessionDetail = "상대방의 승인을 대기 중입니다.", QualityPercent = 0, QualitySummary = "Relay session pending" });
+    }
+
+    private void HandleSessionMessage(TcpSession session, ReadOnlyMemory<byte> payload)
+    {
+        if (payload.Length == 0) return;
+        byte type = payload.Span[0];
+        ReadOnlyMemory<byte> data = payload.Slice(1);
+        switch (type)
+        {
+            case ScreenFramePacketType: _receivedFrameCount++; _ = OnFrameCapturedAsync(session, data, 1920, 1080); break;
+            case FileChunkPacketType: HandleFileChunkReceived(data); break;
+            case ClipboardTextPacketType: HandleIncomingClipboardText(data); break;
+            case FileMetaPacketType: HandleIncomingFileMeta(data); break;
+            case FileDownloadRequestPacketType: _ = HandleRemoteDownloadRequestAsync(Encoding.UTF8.GetString(data.Span), session); break;
+            case FileSystemListRequestPacketType: HandleFileSystemListRequest(data, session); break;
+            case FileSystemListResponsePacketType: FileSystemListReceived?.Invoke(Encoding.UTF8.GetString(data.Span)); break;
+            case ConnectionSetupPacketType: _ = HandleIncomingConnectionSetupAsync(session, data); break;
+            case ConnectionSetupResponsePacketType: HandleIncomingConnectionSetupResponse(session, data.Span[0]); break;
+            case PingPacketType: _ = session.SendAsync(Combine(new byte[] { PongPacketType }, data.Span)); break;
+            case PongPacketType: HandleIncomingPong(data); break;
+        }
+    }
+
+    public void SetDownloadPath(string path)
+    {
+        _customDownloadPath = path;
+        PublishLog("Download Path Updated", $"다운로드 경로가 변경되었습니다: {path}", "Settings");
+    }
+
+    public string GetDownloadPath() => string.IsNullOrWhiteSpace(_customDownloadPath) ? DownloadFolderPath : _customDownloadPath;
+
+    public void CancelCurrentFileTransfer()
+    {
+        if (_fileTransferCts != null)
+        {
+            _fileTransferCts.Cancel();
+            _fileTransferCts.Dispose();
+            _fileTransferCts = null;
+            FileTransferProgressChanged?.Invoke(0.0);
+        }
     }
 
     public Task UploadFileAsync(string filePath)
@@ -1616,6 +1739,21 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     }
 
 
+    public void RemoveDevice(string deviceId)
+    {
+        if (_devices.TryGetValue(deviceId, out var device))
+        {
+            _devices.Remove(deviceId);
+            // 즐겨찾기에서도 해제
+            if (_favoriteDeviceInternalGuids.Contains(device.InternalGuid))
+            {
+                _favoriteDeviceInternalGuids.Remove(device.InternalGuid);
+                PersistPreferences();
+            }
+            DevicesChanged?.Invoke();
+        }
+    }
+
     private DeviceModel CreateLocalDeviceModel()
     {
         return new DeviceModel
@@ -1900,11 +2038,192 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         return stream.ToArray();
     }
 
-    private static byte[] Combine(byte[] first, byte[] second)
+    private void HandleFileChunkReceived(ReadOnlyMemory<byte> data)
     {
-        byte[] combined = new byte[first.Length + second.Length];
-        Buffer.BlockCopy(first, 0, combined, 0, first.Length);
-        Buffer.BlockCopy(second, 0, combined, first.Length, second.Length);
-        return combined;
+        string destination = string.IsNullOrWhiteSpace(_receivingFilePath) ? GetFallbackDownloadPath() : _receivingFilePath;
+        _ = _fileTransferService.ReceiveFileChunkAsync(destination, data, _fileTransferCts?.Token ?? default);
+        _receivedBytes += data.Length;
+        if (_receivingFileSize > 0)
+        {
+            double progress = (double)_receivedBytes / _receivingFileSize;
+            FileTransferProgressChanged?.Invoke(progress);
+            if (_receivedBytes >= _receivingFileSize)
+            {
+                PublishLog("File Received", $"파일 수신 완료: {Path.GetFileName(destination)}", "File / Inbound");
+                _fileTransferCts?.Dispose();
+                _fileTransferCts = null;
+            }
+        }
+    }
+
+    private void HandleIncomingFileMeta(ReadOnlyMemory<byte> data)
+    {
+        try
+        {
+            string json = Encoding.UTF8.GetString(data.Span);
+            var meta = JsonSerializer.Deserialize<FileMetadataPacket>(json);
+            if (meta == null) return;
+            _receivingFilePath = ResolveUniqueDownloadPath(meta.FileName);
+            _receivingFileSize = meta.FileSize;
+            _receivedBytes = 0;
+            _fileTransferCts?.Cancel();
+            _fileTransferCts = new CancellationTokenSource();
+            PublishLog("File Transfer Started", $"파일 수신 시작: {meta.FileName} ({meta.FileSize / 1024} KB)", "File / Inbound");
+            FileTransferProgressChanged?.Invoke(0.0);
+        }
+        catch { }
+    }
+
+    private void HandleFileSystemListRequest(ReadOnlyMemory<byte> data, TcpSession session)
+    {
+        string path = Encoding.UTF8.GetString(data.Span);
+        _ = Task.Run(async () =>
+        {
+            var json = _fileSystemService.GetDirectoryListingJson(path);
+            var jsonBytes = Encoding.UTF8.GetBytes(json);
+            await session.SendAsync(Combine(new byte[] { FileSystemListResponsePacketType }, jsonBytes)).ConfigureAwait(false);
+        });
+    }
+
+    private record FileMetadataPacket(string FileName, long FileSize);
+
+    private async Task SendConnectionSetupAsync(TcpSession session)
+    {
+        try
+        {
+            var setup = new {
+                DeviceName = _localIdentity.DeviceName,
+                DeviceCode = _localIdentity.DeviceCode,
+                InternalGuid = _localIdentity.InternalGuid,
+                RequestedApprovalMode = _lastApprovalMode
+            };
+            string json = JsonSerializer.Serialize(setup);
+            byte[] jsonBytes = Encoding.UTF8.GetBytes(json);
+            await session.SendAsync(Combine(new byte[] { ConnectionSetupPacketType }, jsonBytes)).ConfigureAwait(false);
+            PublishLog("Handshake Sent", "원격지로 연결 설정 및 승인 정책 정보를 전송했습니다.", "Security");
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Session] Send ConnectionSetup Error: {ex.Message}");
+        }
+    }
+
+    private async Task HandleIncomingConnectionSetupAsync(TcpSession session, ReadOnlyMemory<byte> payload)
+    {
+        try
+        {
+            string json = Encoding.UTF8.GetString(payload.Span);
+            var setup = JsonSerializer.Deserialize<Models.ConnectionSetupData>(json);
+            if (setup == null) return;
+
+            PublishLog("Handshake Received", $"원격 장치({setup.DeviceName})로부터 {setup.RequestedApprovalMode} 정책으로 연결 요청이 들어왔습니다.", "Security");
+
+            var decision = await _approvalService.RequestApprovalAsync(
+                new DeviceModel { Name = setup.DeviceName, DeviceCode = setup.DeviceCode, InternalGuid = setup.InternalGuid },
+                setup.RequestedApprovalMode,
+                isReconnect: false,
+                CancellationToken.None).ConfigureAwait(false);
+
+            byte result = decision == ApprovalDecision.Approved ? (byte)1 : (byte)0;
+            await session.SendAsync(new byte[] { ConnectionSetupResponsePacketType, result }).ConfigureAwait(false);
+
+            if (decision == ApprovalDecision.Approved)
+            {
+                PublishLog("Connection Approved", $"사용자가 {setup.DeviceName}의 연결을 승인했습니다.", "Security / Approved");
+                StartActiveSessionLogic(session);
+            }
+            else
+            {
+                PublishLog("Connection Denied", $"사용자가 {setup.DeviceName}의 연결을 거부했습니다.", "Security / Denied");
+                session.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Session] Handle ConnectionSetup Error: {ex.Message}");
+            session.Dispose();
+        }
+    }
+
+    private void HandleIncomingConnectionSetupResponse(TcpSession session, byte result)
+    {
+        if (result == 1)
+        {
+            PublishLog("Handshake Approved", "원격지로부터 연결 승인을 받았습니다.", "Security / Response");
+            StartActiveSessionLogic(session);
+        }
+        else
+        {
+            PublishLog("Handshake Denied", "원격지가 연결을 거부했습니다.", "Security / Response");
+            PublishSnapshot(new ConnectionSnapshot
+            {
+                SessionTitle = "Connection Denied",
+                SessionDetail = "원격 호스트가 연결을 명시적으로 거부했거나 상호 작용 없이 세션이 종료되었습니다.",
+                Status = "Denied"
+            });
+            session.Dispose();
+        }
+    }
+
+    private void StartActiveSessionLogic(TcpSession session)
+    {
+        _isSessionApproved = true;
+        _telemetryCts?.Cancel();
+        _telemetryCts = new CancellationTokenSource();
+        _ = RunTelemetryLoopAsync(_telemetryCts.Token);
+    }
+
+    private async Task RunTelemetryLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested && _currentSession != null && _isSessionApproved)
+        {
+            try
+            {
+                long ticks = DateTime.UtcNow.Ticks;
+                byte[] tickBytes = BitConverter.GetBytes(ticks);
+                await _currentSession.SendAsync(Combine(new byte[] { PingPacketType }, tickBytes)).ConfigureAwait(false);
+            }
+            catch { }
+            await Task.Delay(5000, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private void HandleIncomingPong(ReadOnlyMemory<byte> payload)
+    {
+        if (payload.Length < 8) return;
+        long sentTicks = BitConverter.ToInt64(payload.Span);
+        long rttTicks = DateTime.UtcNow.Ticks - sentTicks;
+        _lastMeasuredRttMs = rttTicks / TimeSpan.TicksPerMillisecond;
+        UpdateConnectionQualityFromRtt(_lastMeasuredRttMs);
+        PublishSnapshot(CreateConnectionSnapshot());
+    }
+
+    private void UpdateConnectionQualityFromRtt(long rttMs)
+    {
+        if (rttMs < 0) return;
+        if (rttMs < 30) { _connectionQualityPercent = 100; _connectionQualitySummary = "Excellent"; }
+        else if (rttMs < 80) { _connectionQualityPercent = 95; _connectionQualitySummary = "Good"; }
+        else if (rttMs < 150) { _connectionQualityPercent = 80; _connectionQualitySummary = "Fair"; }
+        else { _connectionQualityPercent = 50; _connectionQualitySummary = "Poor"; }
+    }
+
+    private ConnectionSnapshot CreateConnectionSnapshot()
+    {
+        return new ConnectionSnapshot
+        {
+            SessionTitle = _activeSnapshot.SessionTitle,
+            SessionDetail = _activeSnapshot.SessionDetail,
+            Status = _activeSnapshot.Status,
+            QualityPercent = _connectionQualityPercent,
+            QualitySummary = _connectionQualitySummary
+        };
+    }
+
+    private static byte[] Combine(ReadOnlySpan<byte> first, ReadOnlySpan<byte> second)
+    {
+        byte[] result = new byte[first.Length + second.Length];
+        first.CopyTo(result);
+        second.CopyTo(result.AsSpan(first.Length));
+        return result;
     }
 }

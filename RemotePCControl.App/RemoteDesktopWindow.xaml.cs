@@ -36,6 +36,7 @@ public partial class RemoteDesktopWindow : Window
     public event Action<int, int, InputInjectionService.MouseEventFlags>? OnMouseInputCaptured;
     public event Action<ushort, InputInjectionService.KeyEventFlags>? OnKeyboardInputCaptured;
     public event Action<int, int>? OnResolutionRequested;
+    public event Action? OnLocalPasteRequested;
 
     public RemoteDesktopWindow(
         Int32Rect? capturedOutputBounds,
@@ -228,6 +229,17 @@ public partial class RemoteDesktopWindow : Window
 
     private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // FR-8: Ctrl+V 입력을 통한 로컬 파일 업로드 처리
+        if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.V)
+        {
+            if (Clipboard.ContainsFileDropList())
+            {
+                OnLocalPasteRequested?.Invoke();
+                e.Handled = true;
+                return;
+            }
+        }
+
         if (TryTranslateVirtualKey(e, out ushort virtualKey))
         {
             OnKeyboardInputCaptured?.Invoke(virtualKey, InputInjectionService.KeyEventFlags.KeyDown);

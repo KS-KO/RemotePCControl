@@ -1,0 +1,30 @@
+  蹂듭썝???꾨줈?앺듃瑜??뺤씤?섎뒗 以?..
+  蹂듭썝??紐⑤뱺 ?꾨줈?앺듃媛 理쒖떊 ?곹깭?낅땲??
+  RemotePCControl.RelayServer -> C:\Project\RemotePCControl\RemotePCControl.RelayServer\bin\Debug\net9.0\RemotePCControl.RelayServer.dll
+  9
+  8c46a5579
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(626,17): error CS0103: 'HandleFileChunkReceived' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(632,17): error CS0103: 'HandleIncomingFileMeta' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(638,17): error CS0103: 'HandleFileSystemListRequest' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(644,17): error CS0103: 'HandleConnectionSetup' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(647,17): error CS0103: 'HandleConnectionSetupResponse' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(650,17): error CS0103: 'HandleIncomingPing' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(1717,37): error CS9174: ?뺤떇???앹꽦?????놁쑝誘濡?而щ젆???앹쓣 ?ъ슜?섏뿬 'ReadOnlyMemory<byte>' ?뺤떇??珥덇린?뷀븷 ???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(124,17): warning CS0649: 'RealRemoteSessionService._connectionQualityPercent' ?꾨뱶?먮뒗 ?좊떦?섏? ?딆쑝誘濡???긽 0 湲곕낯媛믪쓣 ?ъ슜?⑸땲?? [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+
+鍮뚮뱶?섏? 紐삵뻽?듬땲??
+
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(124,17): warning CS0649: 'RealRemoteSessionService._connectionQualityPercent' ?꾨뱶?먮뒗 ?좊떦?섏? ?딆쑝誘濡???긽 0 湲곕낯媛믪쓣 ?ъ슜?⑸땲?? [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(626,17): error CS0103: 'HandleFileChunkReceived' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(632,17): error CS0103: 'HandleIncomingFileMeta' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(638,17): error CS0103: 'HandleFileSystemListRequest' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(644,17): error CS0103: 'HandleConnectionSetup' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(647,17): error CS0103: 'HandleConnectionSetupResponse' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(650,17): error CS0103: 'HandleIncomingPing' ?대쫫???꾩옱 而⑦뀓?ㅽ듃???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+C:\Project\RemotePCControl\RemotePCControl.App\Services\RealRemoteSessionService.cs(1717,37): error CS9174: ?뺤떇???앹꽦?????놁쑝誘濡?而щ젆???앹쓣 ?ъ슜?섏뿬 'ReadOnlyMemory<byte>' ?뺤떇??珥덇린?뷀븷 ???놁뒿?덈떎. [C:\Project\RemotePCControl\RemotePCControl.App\RemotePCControl.App_txn3amff_wpftmp.csproj]
+    寃쎄퀬 1媛?
+    ?ㅻ쪟 7媛?
+
+寃쎄낵 ?쒓컙: 00:00:01.51
+
+?뚰겕濡쒕뱶 ?낅뜲?댄듃瑜??ъ슜?????덉뒿?덈떎. ?먯꽭???댁슜??蹂대젮硫?`dotnet workload list`???ㅽ뻾?섏꽭??
