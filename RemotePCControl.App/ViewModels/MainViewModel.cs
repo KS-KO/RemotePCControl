@@ -67,7 +67,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private int _manualRegisterPort = 9999;
     private bool _isEditPanelVisible;
     private bool _isRemoteInputBlocked;
+    private int _currentMenuIndex;
     private Views.RemoteFileBrowserWindow? _remoteFileBrowserWindow;
+    
+    public int CurrentMenuIndex
+    {
+        get => _currentMenuIndex;
+        set => SetProperty(ref _currentMenuIndex, value);
+    }
 
     public MainViewModel(IRemoteSessionService remoteSessionService, ResourceMonitorService resourceMonitorService)
     {

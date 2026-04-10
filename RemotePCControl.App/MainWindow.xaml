@@ -11,416 +11,525 @@
         MinWidth="1220"
         MinHeight="760"
         WindowStartupLocation="CenterScreen">
-    <Grid Margin="24">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
+    <Grid Background="{StaticResource SidebarBackgroundBrush}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="280" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-        <Border Grid.Row="0"
-                Style="{StaticResource PanelBorderStyle}"
-                Padding="24"
-                Margin="0,0,0,18">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
+        <!-- Sidebar Navigation -->
+        <Border Grid.Column="0" BorderThickness="0,0,1,0" BorderBrush="{StaticResource BorderBrush}">
+            <Grid Margin="0,32,0,24">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" /> <!-- Logo/Title -->
+                    <RowDefinition Height="*" />    <!-- Nav Items -->
+                    <RowDefinition Height="Auto" /> <!-- Resource Monitor -->
+                </Grid.RowDefinitions>
 
-                <StackPanel>
-                    <TextBlock FontSize="30" FontWeight="SemiBold" Text="Remote PC Control" />
-                    <TextBlock Margin="0,8,0,0"
-                               Foreground="{StaticResource SubtleTextBrush}"
-                               Text="DOC 기반의 .NET 9 x64 MVVM 프로토타입입니다. 연결 흐름, 장치 관리, 세션 상태, 파일 전송 요구를 한 화면에서 검증할 수 있습니다." />
+                <!-- Logo Area -->
+                <StackPanel Margin="24,0,24,48">
+                    <TextBlock Text="REMOTE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
+                    <TextBlock Text="PC Control" FontSize="24" FontWeight="SemiBold" Foreground="White" Margin="0,4,0,0" />
                 </StackPanel>
 
-                <Border Grid.Column="1"
-                        Background="{StaticResource AccentMutedBrush}"
-                        CornerRadius="16"
-                        Padding="18,14"
-                        Margin="20,0,0,0">
-                    <StackPanel>
-                        <TextBlock FontWeight="SemiBold" Text="Build Profile" />
-                        <TextBlock Margin="0,6,0,0" Text="{Binding BuildProfile}" />
-                        <TextBlock Margin="0,2,0,0" Text="{Binding ArchitectureProfile}" />
-                        <TextBlock Margin="0,2,0,0" Text="{Binding UiArchitecture}" />
+                <!-- Navigation Group -->
+                <StackPanel Grid.Row="1" Margin="12,0">
+                    <RadioButton Style="{StaticResource SidebarButtonStyle}" Content="Dashboard" Click="Menu_Click" Tag="0" IsChecked="True" GroupName="Sidebar" />
+                    <RadioButton Style="{StaticResource SidebarButtonStyle}" Content="Devices" Click="Menu_Click" Tag="1" GroupName="Sidebar" />
+                    <RadioButton Style="{StaticResource SidebarButtonStyle}" Content="Active Session" Click="Menu_Click" Tag="2" GroupName="Sidebar" />
+                    <RadioButton Style="{StaticResource SidebarButtonStyle}" Content="Audit Timeline" Click="Menu_Click" Tag="3" GroupName="Sidebar" />
+                </StackPanel>
+
+                <!-- Resource Stats (Sidebar Bottom) -->
+                <Border Grid.Row="2" Margin="16,0" Padding="20" Background="#1E293B" CornerRadius="16">
+                    <StackPanel Margin="24">
+                        <TextBlock Text="System Resources" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource SubtleTextBrush}" Margin="0,0,0,16" />
+                        
+                        <StackPanel Margin="0,0,0,12">
+                            <Grid Margin="0,0,0,4">
+                                <TextBlock Text="CPU: 3.6%" FontSize="12" Foreground="White" />
+                            </Grid>
+                            <ProgressBar Height="4" Value="3.6" Background="#0F172A" Foreground="{StaticResource AccentBrush}" BorderThickness="0" />
+                        </StackPanel>
+
+                        <StackPanel Margin="0,0,0,16">
+                            <Grid Margin="0,0,0,4">
+                                <TextBlock Text="Memory: 15.3 / 31.3 GB (48.9%)" FontSize="12" Foreground="White" />
+                            </Grid>
+                            <ProgressBar Height="4" Value="48.9" Background="#0F172A" Foreground="{StaticResource SuccessBrush}" BorderThickness="0" />
+                        </StackPanel>
+                        
+                        <Separator Background="{StaticResource BorderBrush}" Margin="0,0,0,12" Opacity="0.3" />
+                        <TextBlock Text="Commits: 8 | Hash: 7a794f564" FontSize="11" Foreground="{StaticResource SubtleTextBrush}" Opacity="0.6" />
                     </StackPanel>
                 </Border>
             </Grid>
         </Border>
 
-        <UniformGrid Grid.Row="1" Columns="4" Margin="0,0,0,18">
-            <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,12,0">
-                <StackPanel>
-                    <TextBlock Foreground="{StaticResource SubtleTextBrush}" Text="Registered Devices" />
-                    <TextBlock Margin="0,6,0,0" FontSize="28" FontWeight="SemiBold" Text="{Binding DeviceCount}" />
-                </StackPanel>
-            </Border>
-            <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,12,0">
-                <StackPanel>
-                    <TextBlock Foreground="{StaticResource SubtleTextBrush}" Text="Online Devices" />
-                    <TextBlock Margin="0,6,0,0" FontSize="28" FontWeight="SemiBold" Text="{Binding OnlineDeviceCount}" />
-                </StackPanel>
-            </Border>
-            <Border Style="{StaticResource PanelBorderStyle}" Margin="0,0,12,0">
-                <StackPanel>
-                    <TextBlock Foreground="{StaticResource SubtleTextBrush}" Text="Session State" />
-                    <TextBlock Margin="0,6,0,0" FontSize="28" FontWeight="SemiBold" Text="{Binding ActiveSessionStatus}" />
-                </StackPanel>
-            </Border>
-            <Border Style="{StaticResource PanelBorderStyle}" Margin="0">
-                <StackPanel>
-                    <TextBlock Foreground="{StaticResource SubtleTextBrush}" Text="Last Action" />
-                    <TextBlock Margin="0,6,0,0" FontSize="18" FontWeight="SemiBold" Text="{Binding LastActionSummary}" TextWrapping="Wrap" />
-                </StackPanel>
-            </Border>
-        </UniformGrid>
+        <!-- Main Content Area -->
+        <Grid Grid.Column="1" Background="{StaticResource WindowBackgroundBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="80" /> <!-- Top Bar -->
+                <RowDefinition Height="*" />  <!-- View Content -->
+            </Grid.RowDefinitions>
 
-        <Grid Grid.Row="2">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="2.1*" />
-                <ColumnDefinition Width="1.5*" />
-                <ColumnDefinition Width="1.6*" />
-            </Grid.ColumnDefinitions>
-
-            <Border Grid.Column="0" Style="{StaticResource PanelBorderStyle}" Margin="0,0,18,0">
+            <!-- Top Bar -->
+            <Border Grid.Row="0" Padding="32,0" BorderThickness="0,0,0,1" BorderBrush="{StaticResource BorderBrush}">
                 <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                        <TextBlock Text="Control Center" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,24,0" Foreground="White" />
+                        <Border Background="{StaticResource CardBackgroundBrush}" CornerRadius="25" Padding="16,0,4,0" Height="50" Width="420">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Text="{Binding QuickConnectDeviceId, UpdateSourceTrigger=PropertyChanged}" 
+                                         Background="Transparent" BorderThickness="0" Margin="4,0" 
+                                         VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                         Padding="8,0" FontSize="14"
+                                         ToolTip="장치 이름, 코드, 또는 ID를 입력하여 빠르게 연결하세요." />
+                                <Button Grid.Column="1" Command="{Binding QuickConnectCommand}" Content="Connect" 
+                                        Padding="16,0" Margin="4" FontSize="13" FontWeight="SemiBold"
+                                        VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                    </StackPanel>
+
+                    <Border Grid.Column="1" VerticalAlignment="Center" Padding="16,8" CornerRadius="12" Background="{StaticResource AccentMutedBrush}">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}" Margin="0,0,8,0" />
+                            <TextBlock Text="{Binding ActiveSessionStatus}" FontWeight="SemiBold" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- Content Switcher -->
+            <Grid Grid.Row="1" Margin="32">
+                <!-- Group 0: Dashboard -->
+                <Grid x:Name="DashboardView">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentMenuIndex}" Value="0">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
+                    
+                    <TextBlock Grid.Row="0" Text="Dashboard Overview" FontSize="28" FontWeight="Bold" Foreground="White" Margin="0,0,0,24" />
 
-                    <TextBlock FontSize="22" FontWeight="SemiBold" Text="Connection Center" />
-
-                    <Grid Grid.Row="1" Margin="0,16,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="*" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Margin="0,0,12,0">
-                            <TextBlock FontWeight="SemiBold" Text="Quick Connect Device Name / Code" />
-                            <TextBox Text="{Binding QuickConnectDeviceId, UpdateSourceTrigger=PropertyChanged}"
-                                     ToolTip="연결할 대상의 장치 이름, 장치 번호, 또는 장치 ID를 입력합니다. 같은 식별자가 여러 대에서 발견되면 자동 연결 대신 후보 선택이 필요합니다." />
-                            <TextBlock Margin="0,6,0,0"
-                                       Foreground="{StaticResource SubtleTextBrush}"
-                                       Text="{Binding DeviceLookupSummary}"
-                                       TextWrapping="Wrap"
-                                       ToolTip="입력한 식별자가 현재 발견된 장치 목록에서 어떻게 해석되었는지 보여줍니다." />
-                            <TextBlock Margin="0,4,0,0"
-                                       Foreground="#B42318"
-                                       Text="{Binding DuplicateWarningMessage}"
-                                       TextWrapping="Wrap"
-                                       ToolTip="같은 로컬 네트워크에서 동일한 장치 이름 또는 번호가 감지되면 이 경고가 표시됩니다." />
-                        </StackPanel>
-                        <StackPanel Grid.Column="1">
-                            <TextBlock FontWeight="SemiBold" Text="Approval Policy" />
-                            <ComboBox ItemsSource="{Binding ApprovalModes}" SelectedItem="{Binding SelectedApprovalMode}"
-                                      ToolTip="연결 요청 시 승인 방식을 선택합니다. User approval은 상대방 승인, Pre-approved device는 사전 허용, Support request는 지원 요청 흐름입니다." />
-                        </StackPanel>
-                        <StackPanel Grid.Column="2" Margin="12,0,0,0">
-                            <TextBlock FontWeight="SemiBold" Text="Captured Display" />
-                            <ComboBox ItemsSource="{Binding CaptureDisplays}" SelectedItem="{Binding SelectedCaptureDisplay}" DisplayMemberPath="Label"
-                                      ToolTip="원격으로 전송할 화면을 선택합니다. 같은 PC 검증 중에는 Viewer Window Display와 겹치지 않게 설정하는 것이 안전합니다." />
-                        </StackPanel>
-                        <StackPanel Grid.Column="3" Margin="12,0,0,0">
-                            <TextBlock FontWeight="SemiBold" Text="Viewer Window Display" />
-                            <ComboBox ItemsSource="{Binding ViewerDisplays}" SelectedItem="{Binding SelectedViewerDisplay}" DisplayMemberPath="Label"
-                                      ToolTip="수신한 원격 화면 창을 어느 모니터에 띄울지 결정합니다. Auto (Safe Display)는 캡처 중인 모니터를 피하도록 동작합니다." />
-                        </StackPanel>
-                        <StackPanel Grid.Column="4" Margin="12,0,0,0">
-                            <TextBlock FontWeight="SemiBold" Text="Capture Rate" />
-                            <ComboBox ItemsSource="{Binding CaptureRates}" SelectedItem="{Binding SelectedCaptureRate}" DisplayMemberPath="Label"
-                                      ToolTip="초당 프레임 수를 조정합니다. 높은 FPS는 더 부드럽지만 CPU와 네트워크 사용량이 증가할 수 있습니다." />
-                        </StackPanel>
-                        <StackPanel Grid.Column="5" Margin="12,0,0,0">
-                            <TextBlock FontWeight="SemiBold" Text="Transfer Compression" />
-                            <ComboBox ItemsSource="{Binding CompressionOptions}" SelectedItem="{Binding SelectedCompression}" DisplayMemberPath="Label"
-                                      ToolTip="화면 전송 압축 방식을 선택합니다. Raw BGRA는 품질 우선, JPEG는 대역폭 절감에 유리합니다." />
-                        </StackPanel>
-                    </Grid>
+                    <UniformGrid Grid.Row="1" Columns="3" Margin="0,0,0,24">
+                        <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,16,0">
+                            <StackPanel>
+                                <TextBlock Text="Total Devices" Foreground="{StaticResource SubtleTextBrush}" />
+                                <TextBlock Text="{Binding DeviceCount}" FontSize="48" FontWeight="Bold" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource CardBorderStyle}" Margin="0,0,16,0">
+                            <StackPanel>
+                                <TextBlock Text="Online Now" Foreground="{StaticResource SubtleTextBrush}" />
+                                <TextBlock Text="{Binding OnlineDeviceCount}" FontSize="48" FontWeight="Bold" Foreground="{StaticResource SuccessBrush}" Margin="0,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource CardBorderStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Build Metadata" Foreground="{StaticResource SubtleTextBrush}" />
+                                <TextBlock Text="{Binding BuildProfile}" FontWeight="SemiBold" Margin="0,12,0,0" />
+                                <TextBlock Text="{Binding ArchitectureProfile}" Margin="0,4,0,0" />
+                                <TextBlock Text="{Binding UiArchitecture}" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
 
                     <Grid Grid.Row="2">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="*" />
-                        </Grid.RowDefinitions>
-
-                        <WrapPanel Grid.Row="0" Margin="0,0,0,10">
-                            <Button Command="{Binding QuickConnectCommand}" Content="Quick Connect"
-                                    ToolTip="입력한 장치 식별자를 해석한 뒤 선택된 승인 정책과 전송 설정으로 연결을 시작합니다." />
-                            <Button Command="{Binding RequestRemoteSupportCommand}" Content="Request Support Session"
-                                    ToolTip="현재 선택한 장치에 승인 기반 지원 세션을 요청합니다." />
-                            <Button Command="{Binding DisconnectCommand}" Content="Disconnect" Background="#30445B"
-                                    ToolTip="현재 활성 세션을 종료하고 연결 상태를 초기화합니다." />
-                            <Button Command="{Binding UploadFileCommand}" Content="Upload File to Remote" Background="#8E24AA"
-                                    ToolTip="로컬 파일을 선택해 현재 연결된 원격 세션으로 업로드합니다." />
-                            <Button Command="{Binding BrowseRemoteFilesCommand}" Content="Remote File Explorer" Background="#4F46E5"
-                                    ToolTip="원격 PC의 파일 시스템을 브라우징하고 파일을 선택하여 다운로드합니다." />
-                            <Button Command="{Binding DownloadFileCommand}" Content="Download File from Remote" Background="#D81B60"
-                                    ToolTip="원격 PC의 파일을 로컬 다운로드 폴더로 가져옵니다. (데모: C:\Windows\win.ini)" />
-                            <Button Command="{Binding CopyFileCommand}" Content="Ctrl+C / Ctrl+V File Copy" Background="#0E9F6E"
-                                    ToolTip="클립보드 기반 파일 전송 흐름을 준비합니다. 실제 전송 가능 여부는 세션 정책과 운영체제 상태에 따라 달라질 수 있습니다." />
-                            <Button Command="{Binding BrowseRedirectedDrivesCommand}" Content="Browse Redirected Drives" Background="#0891B2"
-                                    ToolTip="상대방 PC가 공유(리디렉션) 중인 드라이브/폴더 목록을 조회합니다." />
-                            <Button Command="{Binding ToggleLocalDriveCommand}" Content="Toggle Local Drive Redirect" Background="#D97706"
-                                    ToolTip="로컬 드라이브를 원격 세션에 노출하거나 숨깁니다." />
-                        </WrapPanel>
-
-                        <Grid Grid.Row="1">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="1.1*" />
-                                <ColumnDefinition Width="0.9*" />
-                            </Grid.ColumnDefinitions>
-
-                            <Border Background="#F7F9FC" CornerRadius="14" Padding="12" Margin="0,0,12,0">
-                                <StackPanel>
-                                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="Registered Devices" />
-                                    <!-- Manual Device Entry -->
-                                    <Border Margin="0,8,0,0" Padding="12" Background="#EAF1FF" CornerRadius="12">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
-                                                <ColumnDefinition Width="Auto" />
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel>
-                                                <TextBlock FontSize="11" Foreground="#175CD3" FontWeight="SemiBold" Text="Manual IP/Port Registration" />
-                                                <Grid Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.5*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        
+                        <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}" Margin="0,0,16,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Recent Activity" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                <ListBox Grid.Row="1" ItemsSource="{Binding SessionLogs}" Margin="0,0,-12,0">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,12,12" Padding="16" Background="#0F172A" CornerRadius="12" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}">
+                                                <Grid>
                                                     <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
                                                         <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="60" />
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBox Text="{Binding ManualRegisterIP, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,4,0" />
-                                                    <TextBox Grid.Column="1" Text="{Binding ManualRegisterPort, UpdateSourceTrigger=PropertyChanged}" />
+                                                    <Border Width="4" Height="32" Background="{StaticResource AccentBrush}" CornerRadius="2" Margin="0,0,16,0" />
+                                                    <StackPanel Grid.Column="1">
+                                                        <DockPanel>
+                                                            <TextBlock Text="{Binding Title}" FontWeight="Bold" />
+                                                            <TextBlock Text="{Binding TimestampLabel}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="{StaticResource SubtleTextBrush}" FontSize="12" />
+                                                        </DockPanel>
+                                                        <TextBlock Text="{Binding Message}" Foreground="{StaticResource SubtleTextBrush}" Margin="0,4,0,0" TextWrapping="Wrap" />
+                                                    </StackPanel>
                                                 </Grid>
-                                            </StackPanel>
-                                            <Button Grid.Column="1" Command="{Binding RegisterManualDeviceCommand}" Content="Add" Margin="8,10,0,0" Padding="10,2" VerticalAlignment="Bottom" />
-                                        </Grid>
-                                    </Border>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </Border>
 
-                                    <ListBox Margin="0,12,0,0"
-                                             BorderThickness="0"
-                                             ItemsSource="{Binding Devices}"
-                                             SelectedItem="{Binding SelectedDevice}"
-                                             ToolTip="브로드캐스트로 찾은 장치와 로컬 장치가 함께 표시됩니다. 선택한 장치는 Quick Connect의 기본 대상으로 사용됩니다.">
-                                        <ListBox.ItemTemplate>
-                                            <DataTemplate DataType="{x:Type models:DeviceModel}">
-                                                <Border Margin="0,0,0,10" Padding="12" Background="White" CornerRadius="12">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <StackPanel>
-                                                            <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
-                                                            <TextBlock Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding DeviceId}" />
-                                                            <TextBlock Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding InternalGuid}" />
-                                                            <TextBlock Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding Description}" TextWrapping="Wrap" />
-                                                        </StackPanel>
-                                                        <Border Grid.Column="1"
-                                                                Padding="10,4"
-                                                                CornerRadius="999"
-                                                                Background="{Binding StatusBrush}"
-                                                                VerticalAlignment="Top">
-                                                            <TextBlock Foreground="White" Text="{Binding StatusLabel}" />
-                                                        </Border>
-                                                    </Grid>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ListBox.ItemTemplate>
-                                    </ListBox>
+                        <StackPanel Grid.Column="1">
+                            <Border Style="{StaticResource CardBorderStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Quick Settings" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                    <TextBlock Text="Approval Mode" Foreground="{StaticResource SubtleTextBrush}" />
+                                    <ComboBox ItemsSource="{Binding ApprovalModes}" SelectedItem="{Binding SelectedApprovalMode}" />
+                                    
+                                    <TextBlock Text="Capture Rate" Foreground="{StaticResource SubtleTextBrush}" Margin="0,8,0,0" />
+                                    <ComboBox ItemsSource="{Binding CaptureRates}" SelectedItem="{Binding SelectedCaptureRate}" DisplayMemberPath="Label" />
+
+                                    <TextBlock Text="Compression" Foreground="{StaticResource SubtleTextBrush}" Margin="0,8,0,0" />
+                                    <ComboBox ItemsSource="{Binding CompressionOptions}" SelectedItem="{Binding SelectedCompression}" DisplayMemberPath="Label" />
                                 </StackPanel>
                             </Border>
 
-                            <Border Grid.Column="1" Background="#F7F9FC" CornerRadius="14" Padding="16">
+                            <Border Style="{StaticResource CardBorderStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="Last Session Info" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
+                                    <TextBlock Text="{Binding LastActionSummary}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+
+                <!-- Group 1: Devices -->
+                <Grid x:Name="DevicesView">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentMenuIndex}" Value="1">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Text="Device Management" FontSize="28" FontWeight="Bold" Foreground="White" Margin="0,0,0,24" />
+
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.2*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}" Margin="0,0,24,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="Registered Devices" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                
+                                <Border Grid.Row="1" Background="#0F172A" Padding="16" CornerRadius="12" Margin="0,0,0,16">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Text="Add Manual Device (IP:Port)" FontSize="11" Foreground="{StaticResource SubtleTextBrush}" />
+                                            <Grid Margin="0,6,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="80" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox Text="{Binding ManualRegisterIP}" Margin="0,0,8,0" />
+                                                <TextBox Grid.Column="1" Text="{Binding ManualRegisterPort}" />
+                                            </Grid>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Command="{Binding RegisterManualDeviceCommand}" Content="Add" VerticalAlignment="Bottom" Height="38" Margin="12,0,0,0" />
+                                    </Grid>
+                                </Border>
+
+                                <ListBox Grid.Row="2" ItemsSource="{Binding Devices}" SelectedItem="{Binding SelectedDevice}" Margin="0,0,-8,0">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Margin="0,0,8,12" Padding="16" CornerRadius="12" Background="#0F172A" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="16" />
+                                                        <TextBlock Text="{Binding DeviceId}" Foreground="{StaticResource SubtleTextBrush}" FontSize="12" Margin="0,4,0,0" />
+                                                    </StackPanel>
+                                                    <Border Grid.Column="1" Padding="12,4" CornerRadius="999" Background="{Binding StatusBrush}" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding StatusLabel}" Foreground="White" FontSize="11" FontWeight="Bold" />
+                                                    </Border>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </Border>
+
+                        <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
                                 <StackPanel>
                                     <DockPanel>
-                                        <TextBlock FontSize="18" FontWeight="SemiBold" Text="Selected Device" />
-                                        <Button DockPanel.Dock="Right"
-                                                Padding="10,4"
-                                                Background="#DC6803"
-                                                Command="{Binding ToggleFavoriteCommand}"
-                                                Content="{Binding SelectedDeviceFavoriteLabel}"
-                                                ToolTip="선택한 장치를 즐겨찾기로 저장하거나 해제합니다." />
+                                        <TextBlock FontSize="20" FontWeight="SemiBold" Text="Device Profile" />
+                                        <Button DockPanel.Dock="Right" Padding="12,6" Background="{StaticResource WarningBrush}" 
+                                                Command="{Binding ToggleFavoriteCommand}" Content="{Binding SelectedDeviceFavoriteLabel}" HorizontalAlignment="Right" />
                                     </DockPanel>
-                                    <TextBlock Margin="0,14,0,0" FontWeight="SemiBold" Text="{Binding SelectedDevice.Name, TargetNullValue=No device selected}" />
-                                    <TextBlock Margin="0,8,0,0" Text="{Binding SelectedDevice.Description}" TextWrapping="Wrap" />
-                                    <TextBlock Margin="0,12,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding SelectedDevice.DeviceId}" />
-                                    <TextBlock Margin="0,6,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding SelectedDevice.InternalGuid}" />
-                                    <TextBlock Margin="0,6,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding SelectedDevice.LastSeenLabel}" />
                                     
-                                    <TextBlock Margin="0,18,0,0" FontWeight="SemiBold" Text="Capabilities" />
-                                    <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedDevice.Capabilities}">
+                                    <Border Margin="0,20,0,0" Padding="20" Background="#0F172A" CornerRadius="16">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding SelectedDevice.Name, TargetNullValue=Select a device}" FontSize="24" FontWeight="Bold" />
+                                            <TextBlock Text="{Binding SelectedDevice.InternalGuid}" Foreground="{StaticResource SubtleTextBrush}" Margin="0,4,0,0" />
+                                            <TextBlock Text="{Binding SelectedDevice.Description}" Margin="0,12,0,0" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </Border>
+
+                                    <TextBlock Text="Capabilities" FontWeight="SemiBold" Margin="0,24,0,12" />
+                                    <ItemsControl ItemsSource="{Binding SelectedDevice.Capabilities}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapPanel />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Margin="0,0,0,8" Padding="10,6" CornerRadius="999" Background="#EAF1FF">
-                                                    <TextBlock Text="{Binding}" />
+                                                <Border Margin="0,0,8,8" Padding="12,6" CornerRadius="8" Background="{StaticResource AccentMutedBrush}">
+                                                    <TextBlock Text="{Binding}" FontSize="12" />
                                                 </Border>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
 
-                                    <!-- Device Editor -->
-                                    <Border Margin="0,18,0,0" Padding="14" Background="White" CornerRadius="12" BorderBrush="#E2E8F0" BorderThickness="1">
+                                    <Border Margin="0,24,0,0" Padding="20" Background="#0F172A" CornerRadius="16">
                                         <StackPanel>
-                                            <TextBlock FontWeight="SemiBold" Text="Edit Device Info" />
-                                            <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="{StaticResource SubtleTextBrush}" Text="Custom Name" />
-                                            <TextBox Text="{Binding EditDeviceName, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0" />
-                                            
-                                            <TextBlock Margin="0,8,0,0" FontSize="11" Foreground="{StaticResource SubtleTextBrush}" Text="Custom Description" />
-                                            <TextBox Text="{Binding EditDeviceDescription, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,0" MinHeight="40" TextWrapping="Wrap" AcceptsReturn="True" />
-                                            
-                                            <Button Command="{Binding UpdateDeviceMetadataCommand}" Content="Save Changes" Margin="0,12,0,0" Background="#175CD3" Foreground="White" />
+                                            <TextBlock Text="Custom Metadata" FontWeight="SemiBold" Margin="0,0,0,12" />
+                                            <TextBlock Text="Device Name" FontSize="11" Foreground="{StaticResource SubtleTextBrush}" />
+                                            <TextBox Text="{Binding EditDeviceName}" Margin="0,4,0,12" />
+                                            <TextBlock Text="Description" FontSize="11" Foreground="{StaticResource SubtleTextBrush}" />
+                                            <TextBox Text="{Binding EditDeviceDescription}" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="60" />
+                                            <Button Command="{Binding UpdateDeviceMetadataCommand}" Content="Save Changes" HorizontalAlignment="Stretch" Margin="0,12,0,0" />
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>
-                            </Border>
-                        </Grid>
+                            </ScrollViewer>
+                        </Border>
                     </Grid>
                 </Grid>
-            </Border>
 
-            <Border Grid.Column="1" Style="{StaticResource PanelBorderStyle}" Margin="0,0,18,0">
-                <Grid>
+                <!-- Group 2: Active Session -->
+                <Grid x:Name="SessionView">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentMenuIndex}" Value="2">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock FontSize="22" FontWeight="SemiBold" Text="Session Workspace" />
+                    <TextBlock Grid.Row="0" Text="Remote Session Activity" FontSize="28" FontWeight="Bold" Foreground="White" Margin="0,0,0,24" />
 
-                    <StackPanel Grid.Row="1" Margin="0,16,0,16">
-                        <TextBlock FontWeight="SemiBold" Text="Current Session" />
-                        <TextBlock Margin="0,8,0,0" FontSize="18" Text="{Binding ActiveSessionTitle}" />
-                        <TextBlock Margin="0,6,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding ActiveSessionDetail}" TextWrapping="Wrap" />
-                    </StackPanel>
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="1.4*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
 
-                    <StackPanel Grid.Row="2">
-                        <Border Background="#EEF5FF" CornerRadius="14" Padding="14" Margin="0,0,0,12">
+                    <StackPanel Grid.Column="0" Margin="0,0,24,0">
+                        <Border Style="{StaticResource CardBorderStyle}">
                             <StackPanel>
-                                <TextBlock FontWeight="SemiBold" Text="Remote Features" />
-                                <CheckBox Margin="0,10,0,0" IsChecked="{Binding IsClipboardSyncEnabled}" Content="Clipboard text sync"
-                                          ToolTip="텍스트 클립보드 내용을 세션 간에 공유하도록 설정합니다." />
-                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsCtrlCopyEnabled}" Content="Ctrl+C / Ctrl+V file copy"
-                                          ToolTip="파일 복사/붙여넣기 기반 전송 시나리오를 사용할 수 있도록 준비합니다." />
-                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsViewerPinnedToSafeDisplay}" Content="Keep viewer off captured display"
-                                          ToolTip="같은 PC 검증 시 원격 뷰어가 캡처 중인 화면에 올라가 자기 자신을 다시 찍는 상황을 방지합니다." />
-                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsLocalDriveRedirectEnabled}" Content="Local drive redirect"
-                                          ToolTip="원격 세션에서 로컬 드라이브에 접근할 수 있도록 노출 여부를 제어합니다." />
-                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsReconnectEnabled}" Content="Auto reconnect"
-                                          ToolTip="네트워크가 끊겼을 때 자동 재연결을 시도하는 설정입니다." />
-                                <Grid Margin="0,12,0,0">
+                                <TextBlock Text="Session Controls" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                <TextBlock Text="{Binding ActiveSessionTitle}" FontSize="24" FontWeight="Bold" />
+                                <TextBlock Text="{Binding ActiveSessionDetail}" Foreground="{StaticResource SubtleTextBrush}" Margin="0,8,0,20" TextWrapping="Wrap" />
+                                
+                                <WrapPanel>
+                                    <Button Command="{Binding DisconnectCommand}" Content="End Session" Background="{StaticResource ErrorBrush}" Margin="0,0,12,12" />
+                                    <Button Command="{Binding LockRemoteSessionCommand}" Content="Lock Screen" Background="{StaticResource WarningBrush}" Margin="0,0,12,12" />
+                                    <ToggleButton Style="{StaticResource QuickActionButtonStyle}" Content="Block Remote Input" IsChecked="{Binding IsRemoteInputBlocked}" Command="{Binding ToggleRemoteInputBlockCommand}" Margin="0,0,12,12" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardBorderStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Remote Features" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                <UniformGrid Columns="2">
+                                    <CheckBox Content="Clipboard sync" IsChecked="{Binding IsClipboardSyncEnabled}" Margin="0,0,0,12" Foreground="White" />
+                                    <CheckBox Content="File copy (Ctrl+C/V)" IsChecked="{Binding IsCtrlCopyEnabled}" Margin="0,0,0,12" Foreground="White" />
+                                    <CheckBox Content="Safe display placement" IsChecked="{Binding IsViewerPinnedToSafeDisplay}" Margin="0,0,0,12" Foreground="White" />
+                                    <CheckBox Content="Local drive redirect" IsChecked="{Binding IsLocalDriveRedirectEnabled}" Margin="0,0,0,12" Foreground="White" />
+                                    <CheckBox Content="Auto reconnect" IsChecked="{Binding IsReconnectEnabled}" Foreground="White" />
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardBorderStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Display &amp; Capture" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="8" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
-                                    <Button Grid.Column="0" Command="{Binding LockRemoteSessionCommand}" Content="Lock Screen" Background="#B91C1C" ToolTip="원격 PC를 즉시 화면 잠금 상태로 만듭니다." />
-                                    <ToggleButton Grid.Column="2" IsChecked="{Binding IsRemoteInputBlocked}" Command="{Binding ToggleRemoteInputBlockCommand}" Content="Block Input" Background="#7C3AED" ToolTip="원격 사용자의 마우스/키보드 입력을 차단하거나 허용합니다." Style="{StaticResource QuickActionButtonStyle}"/>
+                                    <StackPanel Margin="0,0,12,0">
+                                        <TextBlock Text="Source Display" Foreground="{StaticResource SubtleTextBrush}" />
+                                        <ComboBox ItemsSource="{Binding CaptureDisplays}" SelectedItem="{Binding SelectedCaptureDisplay}" DisplayMemberPath="Label" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                                        <TextBlock Text="Viewer Window" Foreground="{StaticResource SubtleTextBrush}" />
+                                        <ComboBox ItemsSource="{Binding ViewerDisplays}" SelectedItem="{Binding SelectedViewerDisplay}" DisplayMemberPath="Label" />
+                                    </StackPanel>
                                 </Grid>
                             </StackPanel>
                         </Border>
+                    </StackPanel>
 
-                        <Border Background="#F7F9FC" CornerRadius="14" Padding="14" Margin="0,0,0,12">
-                            <StackPanel ToolTip="현재 세션의 연결 품질 요약과 상대적인 상태 값을 보여줍니다. 수치는 네트워크와 캡처 상태에 따라 변합니다.">
-                                <TextBlock FontWeight="SemiBold" Text="Connection Quality" />
-                                <TextBlock Margin="0,10,0,0" Text="{Binding ConnectionQualitySummary}" />
-                                <ProgressBar Margin="0,10,0,0" Height="10" Maximum="100" Value="{Binding ConnectionQualityPercent}" />
+                    <StackPanel Grid.Column="1">
+                        <Border Style="{StaticResource CardBorderStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Connection Quality" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                <TextBlock Text="{Binding ConnectionQualitySummary}" FontSize="16" Margin="0,0,0,12" />
+                                <ProgressBar Height="12" Maximum="100" Value="{Binding ConnectionQualityPercent}" Background="#0F172A" Foreground="{StaticResource AccentBrush}" BorderThickness="0" />
                             </StackPanel>
                         </Border>
 
-                        <Border Background="#F7F9FC" CornerRadius="14" Padding="14">
-                            <StackPanel ToolTip="파일 전송, 장치 탐색, 연결 시도와 관련된 최신 상태 메시지를 보여줍니다.">
-                                <TextBlock FontWeight="SemiBold" Text="Transfer Status" />
-                                <TextBlock Margin="0,10,0,0" Text="{Binding TransferSummary}" TextWrapping="Wrap" />
-                                <TextBlock Margin="0,8,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding StatusMessage}" TextWrapping="Wrap" />
-                                <Button Margin="0,12,0,0" Command="{Binding PasteRemoteClipboardCommand}" Content="Paste Files" Background="#059669" FontWeight="SemiBold" />
+                        <Border Style="{StaticResource CardBorderStyle}">
+                            <StackPanel>
+                                <TextBlock Text="File Operations" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                <Button Command="{Binding BrowseRemoteFilesCommand}" Content="Remote Explorer" Background="{StaticResource AccentMutedBrush}" HorizontalAlignment="Stretch" Margin="0,0,0,12" />
+                                <Button Command="{Binding UploadFileCommand}" Content="Upload Local File" HorizontalAlignment="Stretch" Margin="0,0,0,12" />
+                                <Button Command="{Binding PasteRemoteClipboardCommand}" Content="Paste Clipboard Files" Background="{StaticResource SuccessBrush}" HorizontalAlignment="Stretch" />
+                                
+                                <Border Margin="0,20,0,0" Padding="16" Background="#0F172A" CornerRadius="12">
+                                    <StackPanel>
+                                        <TextBlock Text="Transfer Status" FontSize="12" FontWeight="Bold" Foreground="{StaticResource SubtleTextBrush}" Margin="0,0,0,8" />
+                                        <TextBlock Text="{Binding TransferSummary}" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding StatusMessage}" Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                         </Border>
                     </StackPanel>
+                    </Grid>
                 </Grid>
-            </Border>
 
-            <Border Grid.Column="2" Style="{StaticResource PanelBorderStyle}">
-                <Grid>
+                <!-- Group 3: Audit Timeline -->
+                <Grid x:Name="TimelineView">
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding CurrentMenuIndex}" Value="3">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
-                    <TextBlock FontSize="22" FontWeight="SemiBold" Text="Audit Timeline" />
+                    <TextBlock Grid.Row="0" Text="Activity Timeline &amp; Logs" FontSize="28" FontWeight="Bold" Foreground="White" Margin="0,0,0,24" />
 
-                    <Border Grid.Row="1" Background="#F7F9FC" CornerRadius="14" Padding="14" Margin="0,16,0,12">
-                        <StackPanel>
-                            <DockPanel>
-                                <TextBlock FontSize="18" FontWeight="SemiBold" Text="Recent Connections" />
-                                <Button DockPanel.Dock="Right"
-                                        Padding="10,4"
-                                        Background="#175CD3"
-                                        Command="{Binding UseRecentConnectionCommand}"
-                                        Content="Use Selected"
-                                        ToolTip="선택한 최근 연결 정보를 Quick Connect 입력값으로 복원합니다." />
-                            </DockPanel>
-                            <ListBox Margin="0,12,0,0"
-                                     BorderThickness="0"
-                                     ItemsSource="{Binding RecentConnections}"
-                                     SelectedItem="{Binding SelectedRecentConnection}"
-                                     ToolTip="최근 성공한 연결 기록입니다. 장치 코드와 마지막 승인 정책을 다시 불러올 수 있습니다.">
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="320" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                    <Border Grid.Column="0" Style="{StaticResource CardBorderStyle}" Margin="0,0,24,0">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Recent Sessions" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" />
+                            <ListBox Grid.Row="1" ItemsSource="{Binding RecentConnections}" SelectedItem="{Binding SelectedRecentConnection}" Margin="0,0,-8,0">
                                 <ListBox.ItemTemplate>
-                                    <DataTemplate DataType="{x:Type models:RecentConnectionEntry}">
-                                        <Border Margin="0,0,0,8" Padding="12" Background="White" CornerRadius="12">
+                                    <DataTemplate>
+                                        <Border Margin="0,0,8,12" Padding="16" CornerRadius="12" Background="#0F172A" BorderThickness="1" BorderBrush="{StaticResource BorderBrush}">
                                             <StackPanel>
                                                 <DockPanel>
-                                                    <TextBlock FontWeight="SemiBold" Text="{Binding DeviceName}" />
-                                                    <TextBlock DockPanel.Dock="Right"
-                                                               Foreground="{StaticResource SubtleTextBrush}"
-                                                               Text="{Binding LastConnectedLabel}" />
+                                                    <TextBlock Text="{Binding DeviceName}" FontWeight="Bold" />
+                                                    <TextBlock Text="{Binding LastConnectedLabel}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="{StaticResource SubtleTextBrush}" FontSize="12" />
                                                 </DockPanel>
-                                                <TextBlock Margin="0,6,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding DeviceCode}" />
-                                                <TextBlock Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding LastApprovalMode}" />
+                                                <TextBlock Text="{Binding DeviceCode}" Foreground="{StaticResource SubtleTextBrush}" Margin="0,4,0,0" />
+                                                <Button Command="{Binding DataContext.UseRecentConnectionCommand, RelativeSource={RelativeSource AncestorType=Window}}" 
+                                                        Content="Restore Setup" HorizontalAlignment="Stretch" Margin="0,12,0,0" Height="32" Padding="0" Background="Transparent" BorderThickness="1" BorderBrush="{StaticResource AccentBrush}" Foreground="{StaticResource AccentBrush}" />
                                             </StackPanel>
                                         </Border>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
                             </ListBox>
-                        </StackPanel>
+                        </Grid>
                     </Border>
 
-                    <ListBox Grid.Row="2" Margin="0,0,0,0" BorderThickness="0" ItemsSource="{Binding SessionLogs}">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate DataType="{x:Type models:SessionLogEntry}">
-                                <Border Margin="0,0,0,10" Padding="14" Background="#F7F9FC" CornerRadius="14">
-                                    <StackPanel>
-                                        <DockPanel>
-                                            <TextBlock FontWeight="SemiBold" Text="{Binding Title}" />
-                                            <TextBlock DockPanel.Dock="Right" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding TimestampLabel}" />
-                                        </DockPanel>
-                                        <TextBlock Margin="0,8,0,0" Text="{Binding Message}" TextWrapping="Wrap" />
-                                        <TextBlock Margin="0,8,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding Meta}" />
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
+                    <Border Grid.Column="1" Style="{StaticResource CardBorderStyle}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Text="Full Audit Log" FontSize="20" FontWeight="SemiBold" Margin="0,0,0,16" />
+                            <ListBox Grid.Row="1" ItemsSource="{Binding SessionLogs}" Margin="0,0,-12,0">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="0,0,12,12" Padding="20" Background="#0F172A" CornerRadius="16">
+                                            <StackPanel>
+                                                <DockPanel>
+                                                    <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="Bold" Foreground="{StaticResource AccentBrush}" />
+                                                    <TextBlock Text="{Binding TimestampLabel}" DockPanel.Dock="Right" HorizontalAlignment="Right" Foreground="{StaticResource SubtleTextBrush}" />
+                                                </DockPanel>
+                                                <TextBlock Text="{Binding Message}" Margin="0,12,0,0" TextWrapping="Wrap" FontSize="14" />
+                                                <TextBlock Text="{Binding Meta}" Margin="0,8,0,0" Foreground="{StaticResource SubtleTextBrush}" FontSize="12" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Grid>
+                    </Border>
+                    </Grid>
                 </Grid>
-            </Border>
+                
+            </Grid>
         </Grid>
-
-        <!-- Status Bar Area -->
-        <Border Grid.Row="3" Margin="0,8,0,0" Padding="0,4,0,0" BorderThickness="0,1,0,0" BorderBrush="#E2E8F0">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <TextBlock Foreground="{StaticResource SubtleTextBrush}" FontSize="13" Margin="0,0,16,0" Text="{Binding CpuUsageText}" />
-                <TextBlock Foreground="{StaticResource SubtleTextBrush}" FontSize="13" Margin="0,0,16,0" Text="{Binding MemoryUsageText}" />
-                <TextBlock Foreground="{StaticResource SubtleTextBrush}" FontSize="13" Text="{Binding GitVersionLabel}" />
-            </StackPanel>
-        </Border>
     </Grid>
 </Window>

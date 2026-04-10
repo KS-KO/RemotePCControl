@@ -322,3 +322,33 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
     - 사용자가 수동으로 세션을 종료한 경우 자동 재연결이 시작되지 않는지 확인한다.
     - 앱 재시작 이후에도 `Pre-approved device` 정책이 저장된 즐겨찾기 기준으로 동일하게 동작하는지 확인한다.
     - 각 검증 항목은 테스트 일시, 수행자, 결과, 로그 근거, 후속 조치를 기록할 수 있는 표 형식의 템플릿으로 관리한다.
+
+## 18. Routine Verification Log
+
+### 18.1 Build and Startup Verification
+| 날짜 | 수행 작업 | 결과 | 비고 |
+| :--- | :--- | :--- | :--- |
+| 2026-04-10 | Clean -> Build -> Run | 성공 (Fixed XAML Exception) | 현재 환경에서 전체 빌드 및 실행 확인 (QuickActionButtonStyle 누락 수정) |
+| 2026-04-10 | Modern UI Overhaul | 성공 (Success) | ### 2026-04-10: Modern UI Overhaul 구현 완료
+- **디자인 시스템**: `App.xaml`에 중앙 집중화된 `Modern Dark Palette` 구축 및 텍스트 시인성 100% 확보.
+- **내비게이션**: 4개 주요 뷰(Dashboard, Devices, Active Session, Audit Timeline) 전환 로직 완벽 구현.
+- **안정성**: XAML 가상화 및 리소스 사전(Resource Dictionary) 중복 스타일 제거를 통해 런타임 예외 해결.
+- **사용자 경험**: 사이드바 RadioButton의 시각적 피드백 보강 및 대형 페이지 타이틀 적용.
+- **UI 디테일 개선**:
+    - ComboBox, TextBox 등 입력 요소의 높이 확대 (MinHeight 42px).
+    - 상단 퀵 커넥트(QuickConnect) 바의 높이 조절 (50px) 및 내부 요소 정렬 최적화.
+    - 전체적인 내부 여백 확대를 통한 시각적 가독성 개선 및 클릭 편의성 향상.
+- **목표**: 현재의 밀집된 UI를 최신 트렌드에 맞는 사이드바 기반의 세련된 디자인으로 전환하여 사용성을 높이고 프리미먼 느낌을 제공한다.
+- **주요 변경 사항**:
+    - **Layout**: 상단 고정 방식에서 좌측 사이드바 내비게이션 구조로 변경.
+    - **Theming**: 다크 모드 기반의 고대비/세련된 컬러 팔레트 적용 (Electric Blue, Deep Charcoal).
+    - **Hierarchy**: 복잡한 기능을 대시보드(Dashboard), 장치 목록(Devices), 세션 로그(Logs) 등으로 메뉴화하여 인지 부하 감소. |
+
+## 19. Modern UI Overhaul
+- **목표**: 현재의 밀집된 UI를 최신 트렌드에 맞는 사이드바 기반의 세련된 디자인으로 전환하여 사용성을 높이고 프리미먼 느낌을 제공한다.
+- **주요 변경 사항**:
+    - **Layout**: 상단 고정 방식에서 좌측 사이드바 내비게이션 구조로 변경.
+    - **Theming**: 다크 모드 기반의 고대비/세련된 컬러 팔레트 적용 (Electric Blue, Deep Charcoal).
+    - **Hierarchy**: 복잡한 기능을 대시보드(Dashboard), 장치 목록(Devices), 세션 로그(Logs) 등으로 메뉴화하여 인지 부하 감소.
+    - **Components**: 카드형 인터페이스, 부드러운 모서리(Rounded Corners), Glassmorphism 효과, 호버 애니메이션 적용.
+    - **Visibility**: 중요 상태(연결 정보, 리소스 상태)를 시각적으로 더 명확하게 강조.

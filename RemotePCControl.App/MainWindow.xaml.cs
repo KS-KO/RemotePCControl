@@ -29,4 +29,12 @@ public partial class MainWindow : Window
             _sessionService.Dispose();
         };
     }
+
+    private void Menu_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement element && int.TryParse(element.Tag?.ToString(), out int index))
+        {
+            _viewModel.CurrentMenuIndex = index;
+        }
+    }
 }

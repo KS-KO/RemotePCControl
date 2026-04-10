@@ -1,0 +1,13 @@
+Unhandled exception. System.Windows.Markup.XamlParseException: '속성 'System.Windows.ResourceDictionary.DeferrableContent' 설정에서 예외가 throw되었습니다.' 줄 번호 '5' 및 줄 위치 '6'
+ ---> System.ArgumentException: Item has already been added. Key in dictionary: 'System.Windows.Controls.ListBoxItem'  Key being added: 'System.Windows.Controls.ListBoxItem'
+   at System.Collections.Hashtable.Insert(Object key, Object nvalue, Boolean add)
+   at System.Windows.ResourceDictionary.SetKeys(IList`1 keyCollection, IServiceProvider serviceProvider)
+   at MS.Internal.Xaml.Runtime.ClrObjectRuntime.SetValue(Object inst, XamlMember property, Object value)
+   --- End of inner exception stack trace ---
+   at System.Windows.Markup.XamlReader.RewrapException(Exception e, IXamlLineInfo lineInfo, Uri baseUri)
+   at System.Windows.Markup.WpfXamlLoader.Load(XamlReader xamlReader, IXamlObjectWriterFactory writerFactory, Boolean skipJournaledProperties, Object rootObject, XamlObjectWriterSettings settings, Uri baseUri)
+   at System.Windows.Markup.WpfXamlLoader.LoadBaml(XamlReader xamlReader, Boolean skipJournaledProperties, Object rootObject, XamlAccessLevel accessLevel, Uri baseUri)
+   at System.Windows.Markup.XamlReader.LoadBaml(Stream stream, ParserContext parserContext, Object parent, Boolean closeStream)
+   at System.Windows.Application.LoadComponent(Object component, Uri resourceLocator)
+   at RemotePCControl.App.App.InitializeComponent() in c:\Project\RemotePCControl\RemotePCControl.App\App.xaml:line 1
+   at RemotePCControl.App.App.Main()
