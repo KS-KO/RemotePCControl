@@ -10,6 +10,24 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
         remove { }
     }
 
+    public event Action? DevicesChanged
+    {
+        add { }
+        remove { }
+    }
+
+    public event Action? RecentConnectionsChanged
+    {
+        add { }
+        remove { }
+    }
+
+    public event Action<ConnectionSnapshot>? SessionSnapshotChanged
+    {
+        add { }
+        remove { }
+    }
+
     public IReadOnlyList<CaptureDisplayOption> GetCaptureDisplays()
     {
         return
@@ -71,6 +89,14 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
     {
     }
 
+    public void SetAutoReconnect(bool enabled)
+    {
+    }
+
+    public void SetClipboardSyncEnabled(bool enabled)
+    {
+    }
+
     public IReadOnlyList<DeviceModel> GetDevices()
     {
         return
@@ -79,33 +105,101 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
             {
                 Name = "Office Workstation",
                 DeviceId = "RPC-OFFICE-01",
+                DeviceCode = "RPC-OFFICE-01",
+                InternalGuid = "mock-office-workstation",
                 Description = "문서 작업과 원격 지원을 위한 주 업무용 장치",
                 LastSeenLabel = "Last seen: just now",
                 Status = DeviceStatus.Online,
                 IsFavorite = true,
+                Endpoints =
+                [
+                    new DeviceEndpoint
+                    {
+                        Address = "127.0.0.1",
+                        Port = 9999,
+                        Scope = DeviceEndpointScope.Local
+                    }
+                ],
                 Capabilities = ["Screen Control", "Clipboard Sync", "Drive Redirect", "File Transfer"]
             },
             new DeviceModel
             {
                 Name = "QA Bench PC",
                 DeviceId = "RPC-QA-07",
+                DeviceCode = "RPC-QA-07",
+                InternalGuid = "mock-qa-bench",
                 Description = "테스트 장비 원격 점검 및 재현 확인 장치",
                 LastSeenLabel = "Last seen: 3 minutes ago",
                 Status = DeviceStatus.Busy,
                 IsFavorite = false,
+                Endpoints =
+                [
+                    new DeviceEndpoint
+                    {
+                        Address = "192.168.0.17",
+                        Port = 9999,
+                        Scope = DeviceEndpointScope.Local
+                    }
+                ],
                 Capabilities = ["Screen Control", "Reconnect", "Session Logs"]
             },
             new DeviceModel
             {
                 Name = "Home Studio",
                 DeviceId = "RPC-HOME-12",
+                DeviceCode = "RPC-HOME-12",
+                InternalGuid = "mock-home-studio",
                 Description = "외부에서 개인 작업을 이어가기 위한 개인 PC",
                 LastSeenLabel = "Last seen: 45 minutes ago",
                 Status = DeviceStatus.Offline,
                 IsFavorite = true,
+                Endpoints =
+                [
+                    new DeviceEndpoint
+                    {
+                        Address = "203.0.113.20",
+                        Port = 9999,
+                        Scope = DeviceEndpointScope.Public
+                    }
+                ],
                 Capabilities = ["File Transfer", "Clipboard Sync"]
             }
         ];
+    }
+
+    public IReadOnlyList<RecentConnectionEntry> GetRecentConnections()
+    {
+        return
+        [
+            new RecentConnectionEntry
+            {
+                DeviceInternalGuid = "mock-office-workstation",
+                DeviceName = "Office Workstation",
+                DeviceCode = "RPC-OFFICE-01",
+                LastApprovalMode = "Pre-approved device",
+                LastConnectedAt = DateTime.Now.AddMinutes(-12)
+            },
+            new RecentConnectionEntry
+            {
+                DeviceInternalGuid = "mock-home-studio",
+                DeviceName = "Home Studio",
+                DeviceCode = "RPC-HOME-12",
+                LastApprovalMode = "User approval",
+                LastConnectedAt = DateTime.Now.AddHours(-3)
+            }
+        ];
+    }
+
+    public void ToggleFavorite(string internalGuid)
+    {
+    }
+
+    public DuplicateCheckResult GetDuplicateCheckResult() => DuplicateCheckResult.None;
+
+    public DeviceResolutionResult ResolveDevice(string identifier)
+    {
+        ConnectionResolutionService resolver = new();
+        return resolver.Resolve(identifier, GetDevices());
     }
 
     public IReadOnlyList<SessionLogEntry> GetSeedLogs()
@@ -144,15 +238,11 @@ public sealed class MockRemoteSessionService : IRemoteSessionService
 
     public ConnectionSnapshot CreateSupportSession(DeviceModel? device)
     {
-        var targetName = device?.Name ?? "Unknown Device";
-        return new ConnectionSnapshot
-        {
-            SessionTitle = $"Support session for {targetName}",
-            SessionDetail = "상대방 승인 기반 세션이 생성되었고, 지원 시나리오에 맞춘 상태 모니터링이 활성화되었습니다.",
-            Status = "Pending Approval",
-            QualityPercent = 73,
-            QualitySummary = "Approval requested, screen stream preflight complete."
-        };
+        return CreateQuickConnection(device, "Support request");
+    }
+
+    public void DisconnectCurrentSession()
+    {
     }
 
     public SessionLogEntry CreateLog(string title, string message, string meta)

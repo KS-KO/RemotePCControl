@@ -105,28 +105,44 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <StackPanel Margin="0,0,12,0">
-                            <TextBlock FontWeight="SemiBold" Text="Quick Connect Device ID" />
-                            <TextBox Text="{Binding QuickConnectDeviceId, UpdateSourceTrigger=PropertyChanged}" />
+                            <TextBlock FontWeight="SemiBold" Text="Quick Connect Device Name / Code" />
+                            <TextBox Text="{Binding QuickConnectDeviceId, UpdateSourceTrigger=PropertyChanged}"
+                                     ToolTip="연결할 대상의 장치 이름, 장치 번호, 또는 장치 ID를 입력합니다. 같은 식별자가 여러 대에서 발견되면 자동 연결 대신 후보 선택이 필요합니다." />
+                            <TextBlock Margin="0,6,0,0"
+                                       Foreground="{StaticResource SubtleTextBrush}"
+                                       Text="{Binding DeviceLookupSummary}"
+                                       TextWrapping="Wrap"
+                                       ToolTip="입력한 식별자가 현재 발견된 장치 목록에서 어떻게 해석되었는지 보여줍니다." />
+                            <TextBlock Margin="0,4,0,0"
+                                       Foreground="#B42318"
+                                       Text="{Binding DuplicateWarningMessage}"
+                                       TextWrapping="Wrap"
+                                       ToolTip="같은 로컬 네트워크에서 동일한 장치 이름 또는 번호가 감지되면 이 경고가 표시됩니다." />
                         </StackPanel>
                         <StackPanel Grid.Column="1">
                             <TextBlock FontWeight="SemiBold" Text="Approval Policy" />
-                            <ComboBox ItemsSource="{Binding ApprovalModes}" SelectedItem="{Binding SelectedApprovalMode}" />
+                            <ComboBox ItemsSource="{Binding ApprovalModes}" SelectedItem="{Binding SelectedApprovalMode}"
+                                      ToolTip="연결 요청 시 승인 방식을 선택합니다. User approval은 상대방 승인, Pre-approved device는 사전 허용, Support request는 지원 요청 흐름입니다." />
                         </StackPanel>
                         <StackPanel Grid.Column="2" Margin="12,0,0,0">
                             <TextBlock FontWeight="SemiBold" Text="Captured Display" />
-                            <ComboBox ItemsSource="{Binding CaptureDisplays}" SelectedItem="{Binding SelectedCaptureDisplay}" DisplayMemberPath="Label" />
+                            <ComboBox ItemsSource="{Binding CaptureDisplays}" SelectedItem="{Binding SelectedCaptureDisplay}" DisplayMemberPath="Label"
+                                      ToolTip="원격으로 전송할 화면을 선택합니다. 같은 PC 검증 중에는 Viewer Window Display와 겹치지 않게 설정하는 것이 안전합니다." />
                         </StackPanel>
                         <StackPanel Grid.Column="3" Margin="12,0,0,0">
                             <TextBlock FontWeight="SemiBold" Text="Viewer Window Display" />
-                            <ComboBox ItemsSource="{Binding ViewerDisplays}" SelectedItem="{Binding SelectedViewerDisplay}" DisplayMemberPath="Label" />
+                            <ComboBox ItemsSource="{Binding ViewerDisplays}" SelectedItem="{Binding SelectedViewerDisplay}" DisplayMemberPath="Label"
+                                      ToolTip="수신한 원격 화면 창을 어느 모니터에 띄울지 결정합니다. Auto (Safe Display)는 캡처 중인 모니터를 피하도록 동작합니다." />
                         </StackPanel>
                         <StackPanel Grid.Column="4" Margin="12,0,0,0">
                             <TextBlock FontWeight="SemiBold" Text="Capture Rate" />
-                            <ComboBox ItemsSource="{Binding CaptureRates}" SelectedItem="{Binding SelectedCaptureRate}" DisplayMemberPath="Label" />
+                            <ComboBox ItemsSource="{Binding CaptureRates}" SelectedItem="{Binding SelectedCaptureRate}" DisplayMemberPath="Label"
+                                      ToolTip="초당 프레임 수를 조정합니다. 높은 FPS는 더 부드럽지만 CPU와 네트워크 사용량이 증가할 수 있습니다." />
                         </StackPanel>
                         <StackPanel Grid.Column="5" Margin="12,0,0,0">
                             <TextBlock FontWeight="SemiBold" Text="Transfer Compression" />
-                            <ComboBox ItemsSource="{Binding CompressionOptions}" SelectedItem="{Binding SelectedCompression}" DisplayMemberPath="Label" />
+                            <ComboBox ItemsSource="{Binding CompressionOptions}" SelectedItem="{Binding SelectedCompression}" DisplayMemberPath="Label"
+                                      ToolTip="화면 전송 압축 방식을 선택합니다. Raw BGRA는 품질 우선, JPEG는 대역폭 절감에 유리합니다." />
                         </StackPanel>
                     </Grid>
 
@@ -137,12 +153,18 @@
                         </Grid.RowDefinitions>
 
                         <WrapPanel Grid.Row="0" Margin="0,0,0,10">
-                            <Button Command="{Binding QuickConnectCommand}" Content="Quick Connect" />
-                            <Button Command="{Binding RequestRemoteSupportCommand}" Content="Request Support Session" />
-                            <Button Command="{Binding DisconnectCommand}" Content="Disconnect" Background="#30445B" />
-                            <Button Command="{Binding UploadFileCommand}" Content="Upload File to Remote" Background="#8E24AA" />
-                            <Button Command="{Binding CopyFileCommand}" Content="Ctrl+C / Ctrl+V File Copy" Background="#0E9F6E" />
-                            <Button Command="{Binding ToggleLocalDriveCommand}" Content="Toggle Local Drive Redirect" Background="#D97706" />
+                            <Button Command="{Binding QuickConnectCommand}" Content="Quick Connect"
+                                    ToolTip="입력한 장치 식별자를 해석한 뒤 선택된 승인 정책과 전송 설정으로 연결을 시작합니다." />
+                            <Button Command="{Binding RequestRemoteSupportCommand}" Content="Request Support Session"
+                                    ToolTip="현재 선택한 장치에 승인 기반 지원 세션을 요청합니다." />
+                            <Button Command="{Binding DisconnectCommand}" Content="Disconnect" Background="#30445B"
+                                    ToolTip="현재 활성 세션을 종료하고 연결 상태를 초기화합니다." />
+                            <Button Command="{Binding UploadFileCommand}" Content="Upload File to Remote" Background="#8E24AA"
+                                    ToolTip="로컬 파일을 선택해 현재 연결된 원격 세션으로 업로드합니다." />
+                            <Button Command="{Binding CopyFileCommand}" Content="Ctrl+C / Ctrl+V File Copy" Background="#0E9F6E"
+                                    ToolTip="클립보드 기반 파일 전송 흐름을 준비합니다. 실제 전송 가능 여부는 세션 정책과 운영체제 상태에 따라 달라질 수 있습니다." />
+                            <Button Command="{Binding ToggleLocalDriveCommand}" Content="Toggle Local Drive Redirect" Background="#D97706"
+                                    ToolTip="로컬 드라이브를 원격 세션에 노출하거나 숨깁니다." />
                         </WrapPanel>
 
                         <Grid Grid.Row="1">
@@ -157,7 +179,8 @@
                                     <ListBox Margin="0,12,0,0"
                                              BorderThickness="0"
                                              ItemsSource="{Binding Devices}"
-                                             SelectedItem="{Binding SelectedDevice}">
+                                             SelectedItem="{Binding SelectedDevice}"
+                                             ToolTip="브로드캐스트로 찾은 장치와 로컬 장치가 함께 표시됩니다. 선택한 장치는 Quick Connect의 기본 대상으로 사용됩니다.">
                                         <ListBox.ItemTemplate>
                                             <DataTemplate DataType="{x:Type models:DeviceModel}">
                                                 <Border Margin="0,0,0,10" Padding="12" Background="White" CornerRadius="12">
@@ -169,6 +192,7 @@
                                                         <StackPanel>
                                                             <TextBlock FontWeight="SemiBold" Text="{Binding Name}" />
                                                             <TextBlock Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding DeviceId}" />
+                                                            <TextBlock Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding InternalGuid}" />
                                                             <TextBlock Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding Description}" TextWrapping="Wrap" />
                                                         </StackPanel>
                                                         <Border Grid.Column="1"
@@ -188,10 +212,19 @@
 
                             <Border Grid.Column="1" Background="#F7F9FC" CornerRadius="14" Padding="16">
                                 <StackPanel>
-                                    <TextBlock FontSize="18" FontWeight="SemiBold" Text="Selected Device" />
+                                    <DockPanel>
+                                        <TextBlock FontSize="18" FontWeight="SemiBold" Text="Selected Device" />
+                                        <Button DockPanel.Dock="Right"
+                                                Padding="10,4"
+                                                Background="#DC6803"
+                                                Command="{Binding ToggleFavoriteCommand}"
+                                                Content="{Binding SelectedDeviceFavoriteLabel}"
+                                                ToolTip="선택한 장치를 즐겨찾기로 저장하거나 해제합니다." />
+                                    </DockPanel>
                                     <TextBlock Margin="0,14,0,0" FontWeight="SemiBold" Text="{Binding SelectedDevice.Name, TargetNullValue=No device selected}" />
                                     <TextBlock Margin="0,8,0,0" Text="{Binding SelectedDevice.Description}" TextWrapping="Wrap" />
                                     <TextBlock Margin="0,12,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding SelectedDevice.DeviceId}" />
+                                    <TextBlock Margin="0,6,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding SelectedDevice.InternalGuid}" />
                                     <TextBlock Margin="0,6,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding SelectedDevice.LastSeenLabel}" />
                                     <TextBlock Margin="0,18,0,0" FontWeight="SemiBold" Text="Capabilities" />
                                     <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding SelectedDevice.Capabilities}">
@@ -230,16 +263,21 @@
                         <Border Background="#EEF5FF" CornerRadius="14" Padding="14" Margin="0,0,0,12">
                             <StackPanel>
                                 <TextBlock FontWeight="SemiBold" Text="Remote Features" />
-                                <CheckBox Margin="0,10,0,0" IsChecked="{Binding IsClipboardSyncEnabled}" Content="Clipboard text sync" />
-                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsCtrlCopyEnabled}" Content="Ctrl+C / Ctrl+V file copy" />
-                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsViewerPinnedToSafeDisplay}" Content="Keep viewer off captured display" />
-                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsLocalDriveRedirectEnabled}" Content="Local drive redirect" />
-                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsReconnectEnabled}" Content="Auto reconnect" />
+                                <CheckBox Margin="0,10,0,0" IsChecked="{Binding IsClipboardSyncEnabled}" Content="Clipboard text sync"
+                                          ToolTip="텍스트 클립보드 내용을 세션 간에 공유하도록 설정합니다." />
+                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsCtrlCopyEnabled}" Content="Ctrl+C / Ctrl+V file copy"
+                                          ToolTip="파일 복사/붙여넣기 기반 전송 시나리오를 사용할 수 있도록 준비합니다." />
+                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsViewerPinnedToSafeDisplay}" Content="Keep viewer off captured display"
+                                          ToolTip="같은 PC 검증 시 원격 뷰어가 캡처 중인 화면에 올라가 자기 자신을 다시 찍는 상황을 방지합니다." />
+                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsLocalDriveRedirectEnabled}" Content="Local drive redirect"
+                                          ToolTip="원격 세션에서 로컬 드라이브에 접근할 수 있도록 노출 여부를 제어합니다." />
+                                <CheckBox Margin="0,8,0,0" IsChecked="{Binding IsReconnectEnabled}" Content="Auto reconnect"
+                                          ToolTip="네트워크가 끊겼을 때 자동 재연결을 시도하는 설정입니다." />
                             </StackPanel>
                         </Border>
 
                         <Border Background="#F7F9FC" CornerRadius="14" Padding="14" Margin="0,0,0,12">
-                            <StackPanel>
+                            <StackPanel ToolTip="현재 세션의 연결 품질 요약과 상대적인 상태 값을 보여줍니다. 수치는 네트워크와 캡처 상태에 따라 변합니다.">
                                 <TextBlock FontWeight="SemiBold" Text="Connection Quality" />
                                 <TextBlock Margin="0,10,0,0" Text="{Binding ConnectionQualitySummary}" />
                                 <ProgressBar Margin="0,10,0,0" Height="10" Maximum="100" Value="{Binding ConnectionQualityPercent}" />
@@ -247,7 +285,7 @@
                         </Border>
 
                         <Border Background="#F7F9FC" CornerRadius="14" Padding="14">
-                            <StackPanel>
+                            <StackPanel ToolTip="파일 전송, 장치 탐색, 연결 시도와 관련된 최신 상태 메시지를 보여줍니다.">
                                 <TextBlock FontWeight="SemiBold" Text="Transfer Status" />
                                 <TextBlock Margin="0,10,0,0" Text="{Binding TransferSummary}" TextWrapping="Wrap" />
                                 <TextBlock Margin="0,8,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding StatusMessage}" TextWrapping="Wrap" />
@@ -261,12 +299,49 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
                     <TextBlock FontSize="22" FontWeight="SemiBold" Text="Audit Timeline" />
 
-                    <ListBox Grid.Row="1" Margin="0,16,0,0" BorderThickness="0" ItemsSource="{Binding SessionLogs}">
+                    <Border Grid.Row="1" Background="#F7F9FC" CornerRadius="14" Padding="14" Margin="0,16,0,12">
+                        <StackPanel>
+                            <DockPanel>
+                                <TextBlock FontSize="18" FontWeight="SemiBold" Text="Recent Connections" />
+                                <Button DockPanel.Dock="Right"
+                                        Padding="10,4"
+                                        Background="#175CD3"
+                                        Command="{Binding UseRecentConnectionCommand}"
+                                        Content="Use Selected"
+                                        ToolTip="선택한 최근 연결 정보를 Quick Connect 입력값으로 복원합니다." />
+                            </DockPanel>
+                            <ListBox Margin="0,12,0,0"
+                                     BorderThickness="0"
+                                     ItemsSource="{Binding RecentConnections}"
+                                     SelectedItem="{Binding SelectedRecentConnection}"
+                                     ToolTip="최근 성공한 연결 기록입니다. 장치 코드와 마지막 승인 정책을 다시 불러올 수 있습니다.">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type models:RecentConnectionEntry}">
+                                        <Border Margin="0,0,0,8" Padding="12" Background="White" CornerRadius="12">
+                                            <StackPanel>
+                                                <DockPanel>
+                                                    <TextBlock FontWeight="SemiBold" Text="{Binding DeviceName}" />
+                                                    <TextBlock DockPanel.Dock="Right"
+                                                               Foreground="{StaticResource SubtleTextBrush}"
+                                                               Text="{Binding LastConnectedLabel}" />
+                                                </DockPanel>
+                                                <TextBlock Margin="0,6,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding DeviceCode}" />
+                                                <TextBlock Margin="0,4,0,0" Foreground="{StaticResource SubtleTextBrush}" Text="{Binding LastApprovalMode}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </StackPanel>
+                    </Border>
+
+                    <ListBox Grid.Row="2" Margin="0,0,0,0" BorderThickness="0" ItemsSource="{Binding SessionLogs}">
                         <ListBox.ItemTemplate>
                             <DataTemplate DataType="{x:Type models:SessionLogEntry}">
                                 <Border Margin="0,0,0,10" Padding="14" Background="#F7F9FC" CornerRadius="14">
@@ -288,7 +363,11 @@
 
         <!-- Status Bar Area -->
         <Border Grid.Row="3" Margin="0,8,0,0" Padding="0,4,0,0" BorderThickness="0,1,0,0" BorderBrush="#E2E8F0">
-            <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource SubtleTextBrush}" FontSize="13" Text="{Binding GitVersionLabel}" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <TextBlock Foreground="{StaticResource SubtleTextBrush}" FontSize="13" Margin="0,0,16,0" Text="{Binding CpuUsageText}" />
+                <TextBlock Foreground="{StaticResource SubtleTextBrush}" FontSize="13" Margin="0,0,16,0" Text="{Binding MemoryUsageText}" />
+                <TextBlock Foreground="{StaticResource SubtleTextBrush}" FontSize="13" Text="{Binding GitVersionLabel}" />
+            </StackPanel>
         </Border>
     </Grid>
 </Window>

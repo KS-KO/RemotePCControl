@@ -103,6 +103,15 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - FR-15: 애플리케이션의 상태표시줄 오른쪽 끝에는 변경 이력 및 버전 식별의 용이성을 위해, 현재 관리 중인 Git의 Commit Count와 Hash Code 9자리를 표시해야 한다.
 - FR-16: 애플리케이션은 동일한 환경에서 중복 프로세스가 불필요하게 늘어나는 것을 방지하고 오직 단일 인스턴스(Single Instance) 형태로만 한 번만 실행되어야 한다.
 - FR-17: 애플리케이션의 상태표시줄에는 운영자가 세션 중 시스템 부하를 빠르게 확인할 수 있도록 로컬 PC의 CPU 사용률과 메모리 사용 상태를 표시해야 한다.
+- FR-18: 사용자는 IP 주소 대신 장치 이름(Device Name) 또는 장치 번호(Device Code)를 사용하여 대상 PC를 식별하고 연결할 수 있어야 한다.
+- FR-19: 시스템은 사용자 표시용 장치 식별자(Device Name, Device Code)와 내부 고유 식별자(Internal Device GUID)를 분리하여 관리해야 한다.
+- FR-20: 시스템은 동일 로컬 네트워크에서 UDP 브로드캐스트 기반 장치 검색을 지원해야 한다.
+- FR-21: 시스템은 앱 시작 시 및 장치 식별자 변경 시, 동일 로컬 네트워크 내 장치 이름 또는 장치 번호의 중복 여부를 확인해야 한다.
+- FR-22: 동일한 장치 이름 또는 장치 번호가 발견되었고 내부 GUID가 다를 경우, 시스템은 충돌로 판단하고 사용자에게 경고해야 한다.
+- FR-23: 동일 식별자를 가진 장치가 여러 대 발견되면, 시스템은 사용자가 연결 대상을 선택할 수 있는 후보 목록 UI를 제공해야 한다.
+- FR-24: 시스템은 로컬 직접 연결을 우선 시도하고, 실패 시 다른 연결 후보 경로를 순차적으로 시도할 수 있어야 한다.
+- FR-25: 장치 식별 및 연결 해석 구조는 향후 중앙 디렉터리 서버 및 중계 서버 확장이 가능하도록 설계되어야 한다.
+- FR-26: 주요 연결 입력 항목, 원격 기능 토글, 상태 표시 영역에는 운영자가 의미를 빠르게 이해할 수 있도록 문맥형 ToolTip을 제공해야 한다.
 
 ### 비기능 요구사항
 - NFR-1: 모든 원격 세션 데이터는 전송 중 암호화되어야 한다.
@@ -118,6 +127,11 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - NFR-11: 클라이언트 UI 레이어는 WPF(Windows Presentation Foundation) 기반의 MVVM 패턴을 적용하여 View, ViewModel, Model의 책임을 분리해야 한다.
 - NFR-12: 빌드 폴더 간소화를 적용하여, 개발 및 배포 빌드 출력 경로가 불필요하게 깊어지는 것(프레임워크 타겟, 런타임 식별자 폴더 중첩)을 방지하고 팀이 직관적으로 접근할 수 있는 단일 구조로 표준화해야 한다.
 - NFR-13: 프로젝트 소스 코드의 변경 이력 추적 및 체계적인 협업 관리를 보장하기 위해, Git(버전 관리 시스템)을 사용하여 모든 형상 관리를 수행해야 한다.
+- NFR-14: 장치 식별자 충돌 검사는 오탐 또는 미탐 가능성을 사용자에게 명확히 안내할 수 있어야 하며, 충돌 결과는 로그로 기록되어야 한다.
+- NFR-15: 로컬 장치 검색은 동일 서브넷 환경에서 합리적인 시간 내에 완료되어야 하며, 검색 실패가 애플리케이션 전체 응답성을 저해해서는 안 된다.
+- NFR-16: 장치 검색, 충돌 감지, 연결 해석 과정은 비동기 방식으로 수행되어 UI 스레드를 차단하지 않아야 한다.
+- NFR-17: 장치 검색 및 연결 로그에는 장치 이름, 장치 번호, 내부 GUID 일부, 연결 경로 유형(Local/Public/Relay), 승인 결과를 포함할 수 있어야 한다.
+- NFR-18: 장치 식별 및 연결 구조는 향후 인터넷 환경에서의 전역 유일성 검증, 디렉터리 조회, 중계 연결로 확장 가능한 계층 구조를 유지해야 한다.
 
 ## 10. 성공 지표
 - 첫 연결 성공률이 내부 목표 기준 이상일 것
@@ -134,12 +148,15 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - 개발 및 배포 프레임워크는 .NET 9로 고정하며, CPU 아키텍처는 초기 버전에서 x64만 지원한다.
 - 클라이언트 애플리케이션 구조는 WPF 기반의 MVVM 패턴을 기준으로 설계하여 UI 로직과 비즈니스 로직의 혼합을 방지해야 한다.
 - 빌드 출력(아티팩트) 경로는 빌드 폴더 간소화 설정을 통해 불필요하게 깊거나 복잡하지 않게 관리해야 하며, 운영 및 테스트 전달 프로세스에서의 혼선을 줄여야 한다.
+- 로컬 브로드캐스트 기반 중복 확인은 동일 서브넷 환경에 한해 유효하며, 인터넷 환경에서 전역 유일성을 보장하지 못한다.
 
 ### 리스크
 - 네트워크 상태에 따라 사용자 경험 편차가 크게 발생할 수 있다.
 - 인증 및 권한 모델이 약할 경우 무단 접속 위험이 존재한다.
 - 파일 전송 및 클립보드 공유 기능은 민감 정보 유출 경로가 될 수 있다.
 - 설치 시 서비스 등록, 방화벽 예외, 권한 요구가 사용성을 저해할 수 있다.
+- 브로드캐스트 기반 중복 감지는 네트워크 격리, 방화벽 정책, 동시 시작 경쟁 상태에 따라 일부 충돌을 검출하지 못할 수 있다.
+- 사용자 표시용 장치 이름은 편의성을 제공하지만 중복 가능성이 있으므로, 실제 시스템 식별은 내부 GUID와 함께 처리해야 한다.
 
 ## 12. 오픈 이슈
 - 초기 연결 방식을 P2P 우선으로 할지, 중계 서버 기반으로 할지, 혼합형으로 할지 결정이 필요하다.
@@ -147,6 +164,10 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - 무인 접속 기능을 MVP에 포함할지, 후속 버전으로 분리할지 판단이 필요하다.
 - 파일 전송, 다중 모니터, 클립보드, 세션 로그 고도화 기능의 MVP 우선순위 확정이 필요하다.
 - 상용화를 고려할 경우 라이선스 정책과 개인정보 처리 정책 정의가 필요하다.
+- 장치 번호(Device Code)를 사용자 지정으로 할지 자동 발급으로 할지 결정이 필요하다.
+- 로컬 탐색 프로토콜을 UDP 브로드캐스트로 할지 멀티캐스트로 할지 결정이 필요하다.
+- 동일 식별자 충돌 시 자동 이름 변경 규칙을 둘지, 사용자 수동 수정만 허용할지 결정이 필요하다.
+- 인터넷 확장 시 중앙 디렉터리와 릴레이 서버를 분리할지 통합할지 결정이 필요하다.
 ## 13. Multi-Monitor Update
 - The MVP viewer must support separate selection of `Captured Display` and `Viewer Window Display`.
 - The `Viewer Window Display` selector must include `Auto (Safe Display)`.
@@ -160,7 +181,8 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 ### 14.1 Current MVP Status
 - The application currently supports loopback-based remote desktop verification on the same PC through a unified server/client runtime.
 - The remote viewer can receive screen frames, relay mouse input, relay keyboard input, and open programs through remote interaction.
-- File upload, audit timeline logging, capture-display selection, viewer-display selection, and safe viewer placement are connected in the current build.
+- Capture-display selection, viewer-display selection, safe viewer placement, audit timeline presentation, and loopback file upload flow are connected in the current build.
+- The current build does not yet complete the full PRD scope for bidirectional file transfer, persisted audit logging, clipboard synchronization, drive redirection, or encrypted transport.
 
 ### 14.2 Screen Capture and Rendering
 - The original unstable DXGI desktop duplication runtime path was replaced with a GDI-based capture path for better execution stability in the current environment.
@@ -179,15 +201,50 @@ Remote PC Control은 사용자가 인터넷 또는 사내망 환경에서 다른
 - The viewer now exposes a shortcut bar for `Start`, `Run`, `Task Manager`, `Alt+Tab`, and `Esc`.
 - The viewer can forward keyboard input after focus is acquired, allowing program launch through Start search, Run dialog, and common shortcuts.
 - The local arrow cursor is explicitly shown over the remote viewer surface.
+- The current implementation provides connection quality summary text and reconnect attempt logs, but does not yet expose a measured latency indicator.
 
 ### 14.5 UI and Operator Controls
 - The Connection Center currently exposes selectors for device ID, approval policy, captured display, viewer window display, capture rate, and transfer compression.
+- Key operator-facing inputs and controls should expose ToolTip guidance so that device lookup, display routing, compression, and transfer options can be understood without separate documentation.
 - The Remote Features panel includes options such as clipboard sync, Ctrl+C/Ctrl+V file copy, safe viewer placement, local drive redirect, and auto reconnect.
 - Transfer compression options currently include raw BGRA and JPEG quality presets.
 - Capture rate presets currently include 15 FPS and 30 FPS.
 - The current build target and distribution baseline are maintained as a dedicated x64 build for Windows.
+- The bottom status bar currently shows live local CPU usage, memory usage, and the Git commit count/hash label.
+- Recent connections and favorite-device management are not yet exposed as dedicated operator workflows in the current UI.
 
 ### 14.6 Documentation and Remaining Follow-Up
 - The PRD already reflects multi-monitor safety behavior and status-bar resource visibility requirements.
-- CPU and memory indicators are documented as status-bar requirements, but the actual status-bar runtime implementation is still a follow-up item.
+- CPU and memory indicators are no longer a follow-up item; the current status bar already shows live local CPU and memory usage together with the Git version label.
 - If remote cursor visibility still appears inconsistent after the local cursor fix, a remote-cursor overlay should be considered as the next implementation step.
+- `Approval Policy` is partially connected. The current build includes allow/deny branching, but `Support request` is not yet tied to a distinct end-to-end host approval workflow and policy rules still need hardening.
+- The `Auto reconnect` option is no longer UI-only. The current build includes a bounded retry workflow, but additional UX refinement and clearer disconnect cause reporting are still follow-up items.
+- Clipboard sync, `Ctrl+C` / `Ctrl+V` file transfer, and local drive redirect currently expose operator toggles and status messaging, but they are not yet wired to a complete remote session data path.
+- File transfer currently supports a basic upload/send path in the loopback runtime, but a production-ready upload/download workflow and operator-selectable destination handling are still follow-up items.
+- Audit timeline entries are currently kept in application memory for runtime verification. Persistent session log storage is still a follow-up item.
+- Transport encryption and secure-at-rest protection for stored device identity data remain follow-up items.
+- Recent connection history and favorite device management remain follow-up items.
+
+### 14.7 Build Verification Update
+- A routine verification flow for the current Windows x64 MVP must include `clean -> build -> run` in sequence.
+- The purpose of this verification is to confirm that the local development environment can reproduce a fresh executable state before additional feature work proceeds.
+- Any failure discovered during clean, build, or startup must be recorded with the failing stage and the exact error message for follow-up.
+
+### 14.8 Next Development Target
+- The next implementation target is to harden `Approval Policy` so that `User approval`, `Pre-approved device`, and `Support request` each follow a distinct and verifiable session-authorization path.
+- `Pre-approved device` must only allow devices explicitly marked as trusted, and must not rely on placeholder logic.
+- `Support request` must progress beyond UI-only snapshot state and participate in the actual connection request and approval flow.
+- Approval outcomes should be reflected consistently in session state text and runtime audit logs so operators can understand whether a session was allowed, denied, cancelled, or timed out.
+
+### 14.9 Clipboard Sync Development Target
+- The next implementation target after approval-policy hardening is to connect the existing clipboard option to an actual text clipboard synchronization path inside the loopback session runtime.
+- Clipboard sync must be limited to text content for the current MVP step.
+- The synchronization flow should avoid redundant clipboard writes and should not create an infinite echo loop between local and remote runtime endpoints.
+- Clipboard sync state changes and notable synchronization events should be visible in runtime logs for operator validation.
+
+### 14.10 Recent And Favorite Device Development Target
+- The next implementation target after clipboard synchronization is to expose operator workflows for recent connections and favorite devices in the main client UI.
+- A successful connection attempt should update a recent-connection list with device identity, timestamp, and last-used approval mode.
+- Operators should be able to toggle whether a device is treated as a favorite without editing source code or seed data.
+- Favorite state and recent-connection history should persist across application restarts for the local operator profile.
+- The approval and connection flow should reuse the persisted favorite flag when evaluating `Pre-approved device` policy.

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Reflection;
@@ -7,21 +8,27 @@ using RemotePCControl.App.Services;
 
 namespace RemotePCControl.App.ViewModels;
 
-public sealed class MainViewModel : ObservableObject
+public sealed class MainViewModel : ObservableObject, IDisposable
 {
     private readonly IRemoteSessionService _remoteSessionService;
+    private readonly ResourceMonitorService _resourceMonitorService;
     private readonly RelayCommand _quickConnectCommand;
     private readonly RelayCommand _requestRemoteSupportCommand;
     private readonly RelayCommand _disconnectCommand;
     private readonly RelayCommand _copyFileCommand;
     private readonly RelayCommand _uploadFileCommand;
     private readonly RelayCommand _toggleLocalDriveCommand;
+    private readonly RelayCommand _toggleFavoriteCommand;
+    private readonly RelayCommand _useRecentConnectionCommand;
     private DeviceModel? _selectedDevice;
+    private RecentConnectionEntry? _selectedRecentConnection;
     private CaptureDisplayOption? _selectedCaptureDisplay;
     private CaptureDisplayOption? _selectedViewerDisplay;
     private CaptureRateOption? _selectedCaptureRate;
     private CompressionOption? _selectedCompression;
     private string _quickConnectDeviceId = string.Empty;
+    private string _duplicateWarningMessage = string.Empty;
+    private string _deviceLookupSummary = "장치 이름 또는 장치 번호를 입력해 연결 대상을 찾을 수 있습니다.";
     private string _selectedApprovalMode = "User approval";
     private string _activeSessionTitle = "No active session";
     private string _activeSessionDetail = "Select a device or enter a device ID to start a remote connection flow.";
@@ -36,17 +43,25 @@ public sealed class MainViewModel : ObservableObject
     private bool _isReconnectEnabled = true;
     private int _connectionQualityPercent;
     private string _connectionQualitySummary = "No active connection";
+    private string _cpuUsageText = "CPU: collecting...";
+    private string _memoryUsageText = "Memory: collecting...";
 
-    public MainViewModel(IRemoteSessionService remoteSessionService)
+    public MainViewModel(IRemoteSessionService remoteSessionService, ResourceMonitorService resourceMonitorService)
     {
         _remoteSessionService = remoteSessionService;
+        _resourceMonitorService = resourceMonitorService;
         Devices = new ObservableCollection<DeviceModel>(_remoteSessionService.GetDevices());
         CaptureDisplays = new ObservableCollection<CaptureDisplayOption>(_remoteSessionService.GetCaptureDisplays());
         ViewerDisplays = new ObservableCollection<CaptureDisplayOption>(CreateViewerDisplayOptions(_remoteSessionService.GetViewerDisplays()));
         CaptureRates = new ObservableCollection<CaptureRateOption>(_remoteSessionService.GetCaptureRates());
         CompressionOptions = new ObservableCollection<CompressionOption>(_remoteSessionService.GetCompressionOptions());
         SessionLogs = new ObservableCollection<SessionLogEntry>(_remoteSessionService.GetSeedLogs().OrderByDescending(log => log.Timestamp));
+        RecentConnections = new ObservableCollection<RecentConnectionEntry>(_remoteSessionService.GetRecentConnections());
         _remoteSessionService.SessionLogAdded += HandleSessionLogAdded;
+        _remoteSessionService.DevicesChanged += HandleDevicesChanged;
+        _remoteSessionService.RecentConnectionsChanged += HandleRecentConnectionsChanged;
+        _remoteSessionService.SessionSnapshotChanged += HandleSessionSnapshotChanged;
+        _resourceMonitorService.SnapshotUpdated += HandleResourceSnapshotUpdated;
         ApprovalModes = ["User approval", "Pre-approved device", "Support request"];
 
         _quickConnectCommand = new RelayCommand(QuickConnect, CanConnect);
@@ -55,6 +70,8 @@ public sealed class MainViewModel : ObservableObject
         _copyFileCommand = new RelayCommand(CopyFile, () => SelectedDevice is not null && IsCtrlCopyEnabled);
         _uploadFileCommand = new RelayCommand(UploadFile, () => ActiveSessionStatus is not "Idle");
         _toggleLocalDriveCommand = new RelayCommand(ToggleLocalDrive, () => SelectedDevice is not null);
+        _toggleFavoriteCommand = new RelayCommand(ToggleFavorite, () => SelectedDevice is not null);
+        _useRecentConnectionCommand = new RelayCommand(UseRecentConnection, () => SelectedRecentConnection is not null);
 
         SelectedDevice = Devices.FirstOrDefault();
         SelectedCaptureDisplay = CaptureDisplays.FirstOrDefault();
@@ -62,6 +79,15 @@ public sealed class MainViewModel : ObservableObject
         SelectedCaptureRate = CaptureRates.LastOrDefault();
         SelectedCompression = CompressionOptions.FirstOrDefault(option => option.EncodingMode == 0x01 && option.Quality == 85) ?? CompressionOptions.FirstOrDefault();
         QuickConnectDeviceId = SelectedDevice?.DeviceId ?? string.Empty;
+
+        DuplicateCheckResult duplicateCheckResult = _remoteSessionService.GetDuplicateCheckResult();
+        if (duplicateCheckResult.IsDuplicate)
+        {
+            DuplicateWarningMessage = $"경고: 동일 로컬 네트워크에서 중복 장치 식별자가 {duplicateCheckResult.Conflicts.Count}건 감지되었습니다.";
+        }
+
+        _remoteSessionService.SetAutoReconnect(_isReconnectEnabled);
+        _remoteSessionService.SetClipboardSyncEnabled(_isClipboardSyncEnabled);
     }
 
     public ObservableCollection<DeviceModel> Devices { get; }
@@ -76,6 +102,8 @@ public sealed class MainViewModel : ObservableObject
 
     public ObservableCollection<SessionLogEntry> SessionLogs { get; }
 
+    public ObservableCollection<RecentConnectionEntry> RecentConnections { get; }
+
     public IReadOnlyList<string> ApprovalModes { get; }
 
     public RelayCommand QuickConnectCommand => _quickConnectCommand;
@@ -89,6 +117,10 @@ public sealed class MainViewModel : ObservableObject
     public RelayCommand UploadFileCommand => _uploadFileCommand;
 
     public RelayCommand ToggleLocalDriveCommand => _toggleLocalDriveCommand;
+
+    public RelayCommand ToggleFavoriteCommand => _toggleFavoriteCommand;
+
+    public RelayCommand UseRecentConnectionCommand => _useRecentConnectionCommand;
 
     public string BuildProfile => "Framework: .NET 9";
 
@@ -107,6 +139,20 @@ public sealed class MainViewModel : ObservableObject
         }
     }
 
+    public string SelectedDeviceFavoriteLabel => SelectedDevice?.IsFavorite == true ? "Remove Favorite" : "Add Favorite";
+
+    public string CpuUsageText
+    {
+        get => _cpuUsageText;
+        private set => SetProperty(ref _cpuUsageText, value);
+    }
+
+    public string MemoryUsageText
+    {
+        get => _memoryUsageText;
+        private set => SetProperty(ref _memoryUsageText, value);
+    }
+
     public int DeviceCount => Devices.Count;
 
     public int OnlineDeviceCount => Devices.Count(device => device.Status == DeviceStatus.Online);
@@ -119,6 +165,18 @@ public sealed class MainViewModel : ObservableObject
             if (SetProperty(ref _selectedDevice, value) && value is not null)
             {
                 QuickConnectDeviceId = value.DeviceId;
+                NotifyCommandStates();
+            }
+        }
+    }
+
+    public RecentConnectionEntry? SelectedRecentConnection
+    {
+        get => _selectedRecentConnection;
+        set
+        {
+            if (SetProperty(ref _selectedRecentConnection, value))
+            {
                 NotifyCommandStates();
             }
         }
@@ -194,6 +252,18 @@ public sealed class MainViewModel : ObservableObject
         set => SetProperty(ref _selectedApprovalMode, value);
     }
 
+    public string DuplicateWarningMessage
+    {
+        get => _duplicateWarningMessage;
+        private set => SetProperty(ref _duplicateWarningMessage, value);
+    }
+
+    public string DeviceLookupSummary
+    {
+        get => _deviceLookupSummary;
+        private set => SetProperty(ref _deviceLookupSummary, value);
+    }
+
     public string ActiveSessionTitle
     {
         get => _activeSessionTitle;
@@ -239,7 +309,14 @@ public sealed class MainViewModel : ObservableObject
     public bool IsClipboardSyncEnabled
     {
         get => _isClipboardSyncEnabled;
-        set => SetProperty(ref _isClipboardSyncEnabled, value);
+        set
+        {
+            if (SetProperty(ref _isClipboardSyncEnabled, value))
+            {
+                _remoteSessionService.SetClipboardSyncEnabled(value);
+                TransferSummary = BuildTransferSummary();
+            }
+        }
     }
 
     public bool IsCtrlCopyEnabled
@@ -283,7 +360,13 @@ public sealed class MainViewModel : ObservableObject
     public bool IsReconnectEnabled
     {
         get => _isReconnectEnabled;
-        set => SetProperty(ref _isReconnectEnabled, value);
+        set
+        {
+            if (SetProperty(ref _isReconnectEnabled, value))
+            {
+                _remoteSessionService.SetAutoReconnect(value);
+            }
+        }
     }
 
     public int ConnectionQualityPercent
@@ -302,35 +385,73 @@ public sealed class MainViewModel : ObservableObject
 
     private void QuickConnect()
     {
-        var device = ResolveTargetDevice();
+        DeviceResolutionResult resolution = _remoteSessionService.ResolveDevice(QuickConnectDeviceId);
+        DeviceModel? device = resolution.ResolvedDevice;
+
+        if (resolution.Status == DeviceResolutionStatus.NotFound)
+        {
+            ActiveSessionTitle = "Device not found";
+            ActiveSessionDetail = $"'{QuickConnectDeviceId}' 식별자에 해당하는 장치를 찾지 못했습니다.";
+            ActiveSessionStatus = "Not Found";
+            ConnectionQualityPercent = 0;
+            ConnectionQualitySummary = "No matching device";
+            LastActionSummary = "Device lookup failed";
+            StatusMessage = "브로드캐스트 탐색 결과와 등록 목록에서 일치하는 장치를 찾지 못했습니다.";
+            DeviceLookupSummary = "일치하는 장치가 없습니다.";
+            AddLog("Quick Connect Failed", $"{QuickConnectDeviceId} 식별자에 해당하는 장치를 찾지 못했습니다.", "Resolution: not found");
+            return;
+        }
+
+        if (resolution.Status == DeviceResolutionStatus.MultipleMatches)
+        {
+            DeviceLookupSummary = $"동일 식별자 후보 {resolution.CandidateDevices.Count}건이 발견되었습니다. 목록에서 장치를 선택해 주세요.";
+            DuplicateWarningMessage = "동일한 장치 이름 또는 번호가 여러 대에서 발견되었습니다.";
+            RefreshDevices(resolution.CandidateDevices);
+            AddLog("Quick Connect Deferred", $"{QuickConnectDeviceId} 식별자에 대해 여러 장치가 발견되었습니다.", $"Candidates: {resolution.CandidateDevices.Count}");
+            return;
+        }
+
+        if (device is not null)
+        {
+            SelectedDevice = device;
+            DeviceLookupSummary = $"{device.Name} ({device.DeviceCode}) 장치로 연결을 시도합니다.";
+            if (!_remoteSessionService.GetDuplicateCheckResult().IsDuplicate)
+            {
+                DuplicateWarningMessage = string.Empty;
+            }
+        }
+
         if (SelectedCaptureDisplay is not null)
         {
             _remoteSessionService.SetCaptureDisplay(SelectedCaptureDisplay.DisplayId);
         }
+
         _remoteSessionService.SetViewerDisplay(SelectedViewerDisplay?.DisplayId);
         if (SelectedCaptureRate is not null)
         {
             _remoteSessionService.SetCaptureRate(SelectedCaptureRate.FramesPerSecond);
         }
+
         if (SelectedCompression is not null)
         {
             _remoteSessionService.SetCompression(SelectedCompression.EncodingMode, SelectedCompression.Quality);
         }
 
-        var snapshot = _remoteSessionService.CreateQuickConnection(device, SelectedApprovalMode);
+        ConnectionSnapshot snapshot = _remoteSessionService.CreateQuickConnection(device, SelectedApprovalMode);
         ApplySnapshot(snapshot);
-        AddLog("Quick Connect", $"{device?.Name ?? QuickConnectDeviceId} 장치로 빠른 연결 흐름을 시작했습니다.", $"Approval: {SelectedApprovalMode}");
+        AddLog("Quick Connect", $"{device?.Name ?? QuickConnectDeviceId} 장치로 빠른 연결 흐름을 시작했습니다.", $"Approval: {SelectedApprovalMode} / Target: {device?.DeviceCode ?? QuickConnectDeviceId}");
     }
 
     private void RequestRemoteSupport()
     {
-        var snapshot = _remoteSessionService.CreateSupportSession(SelectedDevice);
+        ConnectionSnapshot snapshot = _remoteSessionService.CreateSupportSession(SelectedDevice);
         ApplySnapshot(snapshot);
         AddLog("Support Request", $"{SelectedDevice?.Name ?? "Unknown Device"} 장치에 승인 기반 지원 세션을 요청했습니다.", "Mode: Support request");
     }
 
     private void Disconnect()
     {
+        _remoteSessionService.DisconnectCurrentSession();
         ActiveSessionTitle = "No active session";
         ActiveSessionDetail = "세션이 종료되었습니다. 다른 장치를 선택하거나 Quick Connect를 다시 시작할 수 있습니다.";
         ActiveSessionStatus = "Idle";
@@ -344,7 +465,7 @@ public sealed class MainViewModel : ObservableObject
 
     private void CopyFile()
     {
-        var target = SelectedDevice?.Name ?? QuickConnectDeviceId;
+        string target = SelectedDevice?.Name ?? QuickConnectDeviceId;
         TransferSummary = $"Ctrl+C / Ctrl+V 기반 파일 복사 준비 완료. 대상 장치: {target}";
         LastActionSummary = "Prepared clipboard file copy";
         StatusMessage = "Clipboard-assisted transfer pathway is active.";
@@ -365,7 +486,7 @@ public sealed class MainViewModel : ObservableObject
                 TransferSummary = "File uploaded successfully.";
                 AddLog("File Transfer", $"파일 전송 완료: {System.IO.Path.GetFileName(filePath)}", "Direction: Upload");
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 TransferSummary = $"Upload error: {ex.Message}";
             }
@@ -382,15 +503,47 @@ public sealed class MainViewModel : ObservableObject
         AddLog("Drive Redirect", LastActionSummary, $"Target: {SelectedDevice?.Name ?? QuickConnectDeviceId}");
     }
 
-    private DeviceModel? ResolveTargetDevice()
+    private void ToggleFavorite()
     {
-        var matched = Devices.FirstOrDefault(device => device.DeviceId.Equals(QuickConnectDeviceId, StringComparison.OrdinalIgnoreCase));
-        if (matched is not null)
+        if (SelectedDevice is null)
         {
-            SelectedDevice = matched;
+            return;
         }
 
-        return matched ?? SelectedDevice;
+        _remoteSessionService.ToggleFavorite(SelectedDevice.InternalGuid);
+        LastActionSummary = SelectedDevice.IsFavorite ? "Marked device as favorite" : "Removed device from favorites";
+        StatusMessage = SelectedDevice.IsFavorite
+            ? $"{SelectedDevice.Name} 장치를 즐겨찾기로 저장했습니다."
+            : $"{SelectedDevice.Name} 장치를 즐겨찾기에서 제거했습니다.";
+        RaisePropertyChanged(nameof(SelectedDeviceFavoriteLabel));
+        AddLog("Favorite Updated", StatusMessage, $"Target: {SelectedDevice.DeviceCode}");
+    }
+
+    private void UseRecentConnection()
+    {
+        if (SelectedRecentConnection is null)
+        {
+            return;
+        }
+
+        DeviceModel? device = Devices.FirstOrDefault(item =>
+            string.Equals(item.InternalGuid, SelectedRecentConnection.DeviceInternalGuid, StringComparison.OrdinalIgnoreCase));
+        if (device is not null)
+        {
+            SelectedDevice = device;
+            QuickConnectDeviceId = device.DeviceCode;
+            SelectedApprovalMode = SelectedRecentConnection.LastApprovalMode;
+            DeviceLookupSummary = $"{device.Name} 최근 연결 기록을 불러왔습니다.";
+            LastActionSummary = "Loaded recent connection";
+            StatusMessage = $"{device.Name} 장치의 최근 연결 설정을 빠른 연결 입력값으로 복원했습니다.";
+            return;
+        }
+
+        QuickConnectDeviceId = SelectedRecentConnection.DeviceCode;
+        SelectedApprovalMode = SelectedRecentConnection.LastApprovalMode;
+        DeviceLookupSummary = $"{SelectedRecentConnection.DeviceName} 최근 연결 기록을 입력값으로 복원했습니다.";
+        LastActionSummary = "Loaded recent connection";
+        StatusMessage = "현재 목록에서 장치를 찾지 못해 장치 코드만 복원했습니다.";
     }
 
     private void ApplySnapshot(ConnectionSnapshot snapshot)
@@ -440,6 +593,51 @@ public sealed class MainViewModel : ObservableObject
         App.Current.Dispatcher.Invoke(() => SessionLogs.Insert(0, logEntry));
     }
 
+    private void HandleSessionSnapshotChanged(ConnectionSnapshot snapshot)
+    {
+        App.Current.Dispatcher.Invoke(() => ApplySnapshot(snapshot));
+    }
+
+    private void HandleRecentConnectionsChanged()
+    {
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            RecentConnections.Clear();
+            foreach (RecentConnectionEntry recentConnection in _remoteSessionService.GetRecentConnections())
+            {
+                RecentConnections.Add(recentConnection);
+            }
+        });
+    }
+
+    private void HandleDevicesChanged()
+    {
+        App.Current.Dispatcher.Invoke(() => RefreshDevices(_remoteSessionService.GetDevices()));
+    }
+
+    private void HandleResourceSnapshotUpdated(ResourceUsageSnapshot snapshot)
+    {
+        App.Current.Dispatcher.Invoke(() =>
+        {
+            CpuUsageText = $"CPU: {snapshot.CpuUsagePercent:F1}%";
+            MemoryUsageText = $"Memory: {snapshot.UsedMemoryGb:F1} / {snapshot.TotalMemoryGb:F1} GB ({snapshot.MemoryUsagePercent:F1}%)";
+        });
+    }
+
+    private void RefreshDevices(IReadOnlyList<DeviceModel> devices)
+    {
+        Devices.Clear();
+        foreach (DeviceModel device in devices.OrderBy(device => device.Name, StringComparer.OrdinalIgnoreCase))
+        {
+            Devices.Add(device);
+        }
+
+        SelectedDevice ??= Devices.FirstOrDefault();
+        RaisePropertyChanged(nameof(SelectedDeviceFavoriteLabel));
+        RaisePropertyChanged(nameof(DeviceCount));
+        RaisePropertyChanged(nameof(OnlineDeviceCount));
+    }
+
     private void NotifyCommandStates()
     {
         _quickConnectCommand.NotifyCanExecuteChanged();
@@ -448,7 +646,19 @@ public sealed class MainViewModel : ObservableObject
         _copyFileCommand.NotifyCanExecuteChanged();
         _uploadFileCommand.NotifyCanExecuteChanged();
         _toggleLocalDriveCommand.NotifyCanExecuteChanged();
+        _toggleFavoriteCommand.NotifyCanExecuteChanged();
+        _useRecentConnectionCommand.NotifyCanExecuteChanged();
+        RaisePropertyChanged(nameof(SelectedDeviceFavoriteLabel));
         RaisePropertyChanged(nameof(OnlineDeviceCount));
         RaisePropertyChanged(nameof(DeviceCount));
+    }
+
+    public void Dispose()
+    {
+        _remoteSessionService.SessionLogAdded -= HandleSessionLogAdded;
+        _remoteSessionService.DevicesChanged -= HandleDevicesChanged;
+        _remoteSessionService.RecentConnectionsChanged -= HandleRecentConnectionsChanged;
+        _remoteSessionService.SessionSnapshotChanged -= HandleSessionSnapshotChanged;
+        _resourceMonitorService.SnapshotUpdated -= HandleResourceSnapshotUpdated;
     }
 }
