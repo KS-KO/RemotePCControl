@@ -60,6 +60,10 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     private const byte RelayHostPacketType = 0x30;
     private const byte RelayConnectPacketType = 0x31;
     private const byte RelayErrorPacketType = 0x32;
+    private const byte RelayErrorDuplicateCode = 0x00;
+    private const byte RelayErrorCodeNotFound = 0x01;
+    private const byte RelayErrorInvalidCode = 0x02;
+    private const byte RelayErrorCodeExpired = 0x03;
 
     private readonly TcpConnectionManager _tcpManager;
     private readonly ScreenCaptureService _captureService;
@@ -120,6 +124,8 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     private CancellationTokenSource? _telemetryCts;
     private CancellationTokenSource? _fileTransferCts;
     private string _customDownloadPath = string.Empty;
+    private string _lastConnectionRouteLabel = "Unknown";
+    private string _lastConnectionSourceLabel = "Direct";
     private ConnectionSnapshot _activeSnapshot = new() { SessionTitle = "Idle", SessionDetail = "No active session", Status = "Idle", QualityPercent = 0, QualitySummary = "N/A" };
     private int _connectionQualityPercent;
     private string _connectionQualitySummary = "N/A";
@@ -452,15 +458,11 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             return deniedSnapshot;
         }
 
-        DeviceEndpoint? selectedEndpoint = device?.Endpoints.FirstOrDefault(endpoint => endpoint.Scope == DeviceEndpointScope.Local)
-            ?? device?.Endpoints.FirstOrDefault();
-        string targetAddress = selectedEndpoint?.Address ?? IPAddress.Loopback.ToString();
-        int targetPort = selectedEndpoint?.Port ?? 9999;
-        _lastRequestedAddress = targetAddress;
-        _lastRequestedPort = targetPort;
-
         _viewerClosedByUser = false;
-        _ = ConnectToTargetAsync(targetAddress, targetPort, device, _lastApprovalMode, isReconnect: false, CancellationToken.None);
+        IReadOnlyList<DeviceEndpoint> candidateEndpoints = GetOrderedConnectionEndpoints(device);
+        string targetAddress = candidateEndpoints.FirstOrDefault()?.Address ?? IPAddress.Loopback.ToString();
+        int targetPort = candidateEndpoints.FirstOrDefault()?.Port ?? 9999;
+        _ = ConnectUsingPreferredRoutesAsync(device, candidateEndpoints, _lastApprovalMode, CancellationToken.None);
         ConnectionSnapshot pendingSnapshot = CreatePendingApprovalSnapshot(targetAddress, targetPort, _lastApprovalMode);
         PublishSnapshot(pendingSnapshot);
         return pendingSnapshot;
@@ -522,6 +524,8 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             codeBytes.CopyTo(packet, 1);
             await session.SendAsync(packet).ConfigureAwait(false);
             _currentSession = session;
+            _lastConnectionRouteLabel = "Relay";
+            _lastConnectionSourceLabel = "Manual Relay Host";
             _currentSession.OnMessageReceived += (s, data) => 
             {
                 if (data.Length >= 2 && data.Span[0] == RelayConnectPacketType && data.Span[1] == 0x02)
@@ -555,10 +559,19 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             codeBytes.CopyTo(packet, 1);
             await session.SendAsync(packet).ConfigureAwait(false);
             _currentSession = session;
+            _lastConnectionRouteLabel = "Relay";
+            _lastConnectionSourceLabel = "Manual Relay Connect";
             _currentSession.OnDisconnected += OnSessionDisconnected;
             _currentSession.OnMessageReceived += HandleSessionMessage;
             _currentSession.StartReceiving();
-            PublishSnapshot(new ConnectionSnapshot { Status = "Connecting", SessionTitle = "Relay Connecting", SessionDetail = "릴레이 서버를 통한 세션 협상 중...", QualityPercent = 0, QualitySummary = "Establishing tunnel" });
+            PublishSnapshot(new ConnectionSnapshot
+            {
+                Status = "Connecting",
+                SessionTitle = "Connecting via Relay",
+                SessionDetail = $"릴레이 서버 {relayIp}:{relayPort} 를 통해 세션 협상을 시작했습니다.",
+                QualityPercent = 20,
+                QualitySummary = "Route Relay / Manual connect"
+            });
             _ = SendConnectionSetupAsync(session);
         }
         catch (Exception ex)
@@ -572,7 +585,14 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     {
         session.OnMessageReceived -= HandleSessionMessage;
         session.OnMessageReceived += HandleSessionMessage;
-        PublishSnapshot(new ConnectionSnapshot { Status = "Pending", SessionTitle = "Relay Host Waiting", SessionDetail = "상대방의 승인을 대기 중입니다.", QualityPercent = 0, QualitySummary = "Relay session pending" });
+        PublishSnapshot(new ConnectionSnapshot
+        {
+            Status = "Pending",
+            SessionTitle = "Relay host waiting",
+            SessionDetail = "릴레이 경로로 상대방 연결이 도착했습니다. 다음 승인 단계를 기다리는 중입니다.",
+            QualityPercent = 20,
+            QualitySummary = "Route Relay / Waiting approval"
+        });
     }
 
     private void HandleSessionMessage(TcpSession session, ReadOnlyMemory<byte> payload)
@@ -593,6 +613,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             case ConnectionSetupResponsePacketType: HandleIncomingConnectionSetupResponse(session, data.Span[0]); break;
             case PingPacketType: _ = session.SendAsync(Combine(new byte[] { PongPacketType }, data.Span)); break;
             case PongPacketType: HandleIncomingPong(data); break;
+            case RelayErrorPacketType: HandleRelayError(session, data); break;
         }
     }
 
@@ -700,13 +721,14 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _clipboardSyncCts?.Dispose();
     }
 
-    private async Task ConnectToTargetAsync(
+    private async Task<ConnectionAttemptOutcome> ConnectToTargetAsync(
         string ip,
         int port,
         DeviceModel? device,
         string approvalMode,
         bool isReconnect,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? routeLabel = null)
     {
         try
         {
@@ -730,7 +752,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                     "Approval denied");
                 PublishLog("Connection Denied", $"Connection to {device?.Name ?? $"{ip}:{port}"} was denied by policy {normalizedApprovalMode}.", approvalLogCategory);
                 PublishSnapshot(deniedSnapshot);
-                return;
+                return ConnectionAttemptOutcome.PolicyTerminated("Approval denied");
             }
 
             if (approvalDecision == ApprovalDecision.Cancelled)
@@ -745,7 +767,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                 };
                 PublishLog("Connection Cancelled", $"Connection to {device?.Name ?? $"{ip}:{port}"} was cancelled by the operator.", approvalLogCategory);
                 PublishSnapshot(cancelledSnapshot);
-                return;
+                return ConnectionAttemptOutcome.PolicyTerminated("Approval cancelled");
             }
 
             if (approvalDecision == ApprovalDecision.TimedOut)
@@ -760,12 +782,13 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                 };
                 PublishLog("Connection Timed Out", $"Connection to {device?.Name ?? $"{ip}:{port}"} timed out under policy {normalizedApprovalMode}.", approvalLogCategory);
                 PublishSnapshot(timedOutSnapshot);
-                return;
+                return ConnectionAttemptOutcome.PolicyTerminated("Approval timed out");
             }
 
             string? expectedThumbprint = GetExpectedTrustedThumbprint(device);
             var session = await _tcpManager.ConnectAsync(ip, port, expectedThumbprint, cancellationToken).ConfigureAwait(false);
             PublishLog("Connection Established", $"Connected to {ip}:{port}. Session ID: {session.SessionId[..8]}", "TCP Connected");
+            return ConnectionAttemptOutcome.Succeeded(routeLabel ?? $"{ip}:{port}");
         }
         catch (Exception ex)
         {
@@ -781,6 +804,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                 QualityPercent = 0,
                 QualitySummary = isReconnect ? "Reconnect attempt failed" : "TCP error"
             });
+            return ConnectionAttemptOutcome.NetworkFailed(ex.Message);
         }
     }
 
@@ -823,11 +847,11 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
 
         PublishSnapshot(new ConnectionSnapshot
         {
-            SessionTitle = $"Connected to {_lastRequestedDevice?.Name ?? session.SessionId[..8]}",
-            SessionDetail = "승인과 네트워크 연결이 완료되어 원격 세션이 활성화되었습니다.",
+            SessionTitle = $"Connected via {_lastConnectionRouteLabel}",
+            SessionDetail = $"승인과 네트워크 연결이 완료되었습니다. 활성 경로: {_lastConnectionRouteLabel} ({_lastRequestedAddress}:{_lastRequestedPort}) / Source: {_lastConnectionSourceLabel}",
             Status = "Connected",
             QualityPercent = 85,
-            QualitySummary = "Session active"
+            QualitySummary = $"Session active / Route {_lastConnectionRouteLabel}"
         });
         PersistLastKnownConnection(_lastRequestedDevice);
         RecordRecentConnection(_lastRequestedDevice);
@@ -1253,6 +1277,143 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             _lastRequestedPort,
             DateTime.Now);
         PersistPreferences();
+    }
+
+    private async Task ConnectUsingPreferredRoutesAsync(
+        DeviceModel? device,
+        IReadOnlyList<DeviceEndpoint> endpoints,
+        string approvalMode,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<DeviceEndpoint> candidateEndpoints = endpoints.Count > 0
+            ? endpoints
+            : [new DeviceEndpoint { Address = IPAddress.Loopback.ToString(), Port = 9999, Scope = DeviceEndpointScope.Local }];
+
+        string routePlan = string.Join(" -> ", candidateEndpoints.Select(GetRouteDescription));
+        PublishLog(
+            "Connection Route Plan",
+            $"Quick Connect 경로 계획을 확정했습니다. {routePlan}",
+            $"Approval={approvalMode} / RouteCount={candidateEndpoints.Count}");
+
+        for (int index = 0; index < candidateEndpoints.Count; index++)
+        {
+            DeviceEndpoint endpoint = candidateEndpoints[index];
+            string routeLabel = GetRouteDisplayName(endpoint.Scope);
+            string routeDescription = GetRouteDescription(endpoint);
+            string routeMeta = $"Route={endpoint.Scope} / Address={endpoint.Address}:{endpoint.Port} / Attempt={index + 1}/{candidateEndpoints.Count}";
+
+            _lastConnectionRouteLabel = routeLabel;
+            _lastConnectionSourceLabel = "Quick Connect";
+            PublishLog("Connection Route Attempt", $"{routeDescription} 경로로 연결을 시도합니다.", routeMeta);
+            PublishSnapshot(new ConnectionSnapshot
+            {
+                SessionTitle = $"Connecting via {routeLabel}",
+                SessionDetail = $"{device?.Name ?? endpoint.Address} 장치에 대해 {routeDescription} 경로를 시도합니다. {index + 1}/{candidateEndpoints.Count}",
+                Status = "Connecting",
+                QualityPercent = 25,
+                QualitySummary = $"Route {routeLabel} / Attempt {index + 1} of {candidateEndpoints.Count}"
+            });
+
+            ConnectionAttemptOutcome result = await ConnectToTargetAsync(
+                endpoint.Address,
+                endpoint.Port,
+                device,
+                approvalMode,
+                isReconnect: false,
+                cancellationToken,
+                routeLabel).ConfigureAwait(false);
+
+            if (result.IsSuccess)
+            {
+                PublishLog("Connection Route Succeeded", $"{routeDescription} 경로 연결에 성공했습니다.", routeMeta);
+                return;
+            }
+
+            if (!result.ShouldTryNextRoute)
+            {
+                PublishLog("Connection Route Stopped", $"{routeDescription} 경로에서 정책 종료가 발생해 fallback을 중단합니다. {result.Reason}", routeMeta);
+                return;
+            }
+
+            PublishLog("Connection Route Failed", $"{routeDescription} 경로 연결에 실패했습니다. {result.Reason}", routeMeta);
+            if (index < candidateEndpoints.Count - 1)
+            {
+                DeviceEndpoint nextEndpoint = candidateEndpoints[index + 1];
+                string nextRouteLabel = GetRouteDisplayName(nextEndpoint.Scope);
+                PublishLog(
+                    "Connection Route Fallback",
+                    $"{routeDescription} 경로 실패 후 {GetRouteDescription(nextEndpoint)} 경로로 fallback 합니다.",
+                    $"From={endpoint.Scope} / To={nextEndpoint.Scope}");
+                PublishSnapshot(new ConnectionSnapshot
+                {
+                    SessionTitle = "Falling back",
+                    SessionDetail = $"{routeLabel} 경로 연결 실패로 {nextRouteLabel} 경로를 이어서 시도합니다.",
+                    Status = "Connecting",
+                    QualityPercent = 15,
+                    QualitySummary = $"Fallback {routeLabel} -> {nextRouteLabel}"
+                });
+            }
+        }
+
+        DeviceEndpoint finalEndpoint = candidateEndpoints[^1];
+        PublishSnapshot(new ConnectionSnapshot
+        {
+            SessionTitle = "Connection failed",
+            SessionDetail = $"{device?.Name ?? finalEndpoint.Address} 장치에 대해 가능한 모든 경로(Local/Public/Relay)를 시도했지만 연결하지 못했습니다.",
+            Status = "Failed",
+            QualityPercent = 0,
+            QualitySummary = "All routes failed"
+        });
+    }
+
+    private static IReadOnlyList<DeviceEndpoint> GetOrderedConnectionEndpoints(DeviceModel? device)
+    {
+        return device?.Endpoints
+            .OrderBy(endpoint => GetRoutePriority(endpoint.Scope))
+            .ThenBy(endpoint => endpoint.Address, StringComparer.OrdinalIgnoreCase)
+            .ToArray()
+            ?? [];
+    }
+
+    private static string ResolveRouteDisplayName(DeviceModel? device, string? address, int port)
+    {
+        if (device is null || string.IsNullOrWhiteSpace(address))
+        {
+            return "Unknown";
+        }
+
+        DeviceEndpoint? endpoint = device.Endpoints.FirstOrDefault(candidate =>
+            string.Equals(candidate.Address, address, StringComparison.OrdinalIgnoreCase) &&
+            candidate.Port == port);
+
+        return endpoint is null ? "Unknown" : GetRouteDisplayName(endpoint.Scope);
+    }
+
+    private static int GetRoutePriority(DeviceEndpointScope scope)
+    {
+        return scope switch
+        {
+            DeviceEndpointScope.Local => 0,
+            DeviceEndpointScope.Public => 1,
+            DeviceEndpointScope.Relay => 2,
+            _ => 3
+        };
+    }
+
+    private static string GetRouteDisplayName(DeviceEndpointScope scope)
+    {
+        return scope switch
+        {
+            DeviceEndpointScope.Local => "Local",
+            DeviceEndpointScope.Public => "Public",
+            DeviceEndpointScope.Relay => "Relay",
+            _ => "Unknown"
+        };
+    }
+
+    private static string GetRouteDescription(DeviceEndpoint endpoint)
+    {
+        return $"{GetRouteDisplayName(endpoint.Scope)} ({endpoint.Address}:{endpoint.Port})";
     }
 
     private (DeviceModel? Device, string Address, int Port, string Reason)? ResolveReconnectTarget()
@@ -1804,13 +1965,15 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                 cancellationToken.ThrowIfCancellationRequested();
                 TimeSpan delay = GetReconnectDelay(attempt);
                 string targetLabel = _lastRequestedIdentifier ?? _lastKnownConnection?.DeviceCode ?? "unknown target";
+                string reconnectRouteLabel = ResolveRouteDisplayName(_lastRequestedDevice, _lastRequestedAddress, _lastRequestedPort);
+                string reconnectSourceLabel = _lastKnownConnection is not null ? "LastKnownGood or Discovery" : "Discovery";
                 PublishSnapshot(new ConnectionSnapshot
                 {
                     SessionTitle = "Reconnecting",
-                    SessionDetail = $"{targetLabel} 장치에 대해 자동 재연결을 시도합니다. {attempt}/{MaxReconnectAttempts}회, 대기 {delay.TotalSeconds:0}초",
+                    SessionDetail = $"{targetLabel} 장치에 대해 자동 재연결을 시도합니다. Source={reconnectSourceLabel} / Route={reconnectRouteLabel} / {attempt}/{MaxReconnectAttempts}회, 대기 {delay.TotalSeconds:0}초",
                     Status = "Reconnecting",
                     QualityPercent = 15,
-                    QualitySummary = $"Reconnect attempt {attempt}/{MaxReconnectAttempts}"
+                    QualitySummary = $"Reconnect {attempt}/{MaxReconnectAttempts} / Route {reconnectRouteLabel}"
                 });
                 PublishLog("Reconnect Attempt", $"Attempting reconnect #{attempt} for {targetLabel} after {delay.TotalSeconds:0}s backoff.", $"Reconnect / Delay={delay.TotalSeconds:0}s");
                 await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
@@ -1839,18 +2002,27 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                 _lastRequestedDevice = reconnectTarget.Value.Device ?? _lastRequestedDevice;
                 _lastRequestedAddress = reconnectTarget.Value.Address;
                 _lastRequestedPort = reconnectTarget.Value.Port;
+                _lastConnectionRouteLabel = ResolveRouteDisplayName(_lastRequestedDevice, reconnectTarget.Value.Address, reconnectTarget.Value.Port);
+                _lastConnectionSourceLabel = reconnectTarget.Value.Reason;
 
-                await ConnectToTargetAsync(
+                ConnectionAttemptOutcome reconnectResult = await ConnectToTargetAsync(
                     reconnectTarget.Value.Address,
                     reconnectTarget.Value.Port,
                     reconnectTarget.Value.Device ?? _lastRequestedDevice,
                     _lastApprovalMode,
                     isReconnect: true,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    reconnectTarget.Value.Reason).ConfigureAwait(false);
 
-                if (_currentSession is not null)
+                if (reconnectResult.IsSuccess && _currentSession is not null)
                 {
                     PublishLog("Reconnect Succeeded", $"Reconnected to {targetLabel} via {reconnectTarget.Value.Reason}.", $"Reconnect / Source={reconnectTarget.Value.Reason}");
+                    return;
+                }
+
+                if (!reconnectResult.ShouldTryNextRoute)
+                {
+                    PublishLog("Reconnect Stopped", $"Reconnect to {targetLabel} stopped because the approval workflow ended. {reconnectResult.Reason}", "Reconnect / PolicyTerminated");
                     return;
                 }
             }
@@ -2071,7 +2243,11 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             PublishLog("File Transfer Started", $"파일 수신 시작: {meta.FileName} ({meta.FileSize / 1024} KB)", "File / Inbound");
             FileTransferProgressChanged?.Invoke(0.0);
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[Session] File metadata parse error: {ex.Message}");
+            PublishLog("File Transfer Error", $"파일 메타데이터를 처리하지 못했습니다. {ex.Message}", "File / Inbound / Error");
+        }
     }
 
     private void HandleFileSystemListRequest(ReadOnlyMemory<byte> data, TcpSession session)
@@ -2183,7 +2359,11 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
                 byte[] tickBytes = BitConverter.GetBytes(ticks);
                 await _currentSession.SendAsync(Combine(new byte[] { PingPacketType }, tickBytes)).ConfigureAwait(false);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Telemetry] Ping send failed: {ex.Message}");
+                PublishLog("Telemetry Error", $"지연 측정용 Ping 전송에 실패했습니다. {ex.Message}", "Telemetry / Error");
+            }
             await Task.Delay(5000, cancellationToken).ConfigureAwait(false);
         }
     }
@@ -2196,6 +2376,49 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _lastMeasuredRttMs = rttTicks / TimeSpan.TicksPerMillisecond;
         UpdateConnectionQualityFromRtt(_lastMeasuredRttMs);
         PublishSnapshot(CreateConnectionSnapshot());
+    }
+
+    private void HandleRelayError(TcpSession session, ReadOnlyMemory<byte> payload)
+    {
+        byte errorCode = payload.IsEmpty ? RelayErrorCodeNotFound : payload.Span[0];
+        (string title, string detail, string meta) = TranslateRelayError(errorCode);
+        PublishLog("Relay Error", detail, meta);
+        PublishSnapshot(new ConnectionSnapshot
+        {
+            SessionTitle = title,
+            SessionDetail = detail,
+            Status = "Failed",
+            QualityPercent = 0,
+            QualitySummary = "Relay error"
+        });
+        session.Dispose();
+    }
+
+    private static (string Title, string Detail, string Meta) TranslateRelayError(byte errorCode)
+    {
+        return errorCode switch
+        {
+            RelayErrorDuplicateCode => (
+                "Relay code already in use",
+                "같은 릴레이 코드로 이미 다른 호스트가 대기 중입니다. 다른 코드를 사용해 주세요.",
+                "Relay / Duplicate Code"),
+            RelayErrorCodeNotFound => (
+                "Relay code not found",
+                "입력한 릴레이 코드를 찾지 못했습니다. 코드가 올바른지, 호스트가 아직 대기 중인지 확인해 주세요.",
+                "Relay / Code Not Found"),
+            RelayErrorInvalidCode => (
+                "Relay code is invalid",
+                "릴레이 코드는 6자리 영문 대문자 또는 숫자여야 합니다. 코드를 다시 확인해 주세요.",
+                "Relay / Invalid Code"),
+            RelayErrorCodeExpired => (
+                "Relay code expired",
+                "호스트 대기 시간이 만료되어 릴레이 코드가 더 이상 유효하지 않습니다. 호스트에서 새 코드를 다시 열어 주세요.",
+                "Relay / Code Expired"),
+            _ => (
+                "Relay negotiation failed",
+                $"릴레이 서버가 알 수 없는 오류 코드(0x{errorCode:X2})를 반환했습니다.",
+                "Relay / Unknown Error")
+        };
     }
 
     private void UpdateConnectionQualityFromRtt(long rttMs)
@@ -2226,4 +2449,13 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         second.CopyTo(result.AsSpan(first.Length));
         return result;
     }
+}
+
+internal readonly record struct ConnectionAttemptOutcome(bool IsSuccess, bool ShouldTryNextRoute, string Reason)
+{
+    public static ConnectionAttemptOutcome Succeeded(string reason) => new(true, false, reason);
+
+    public static ConnectionAttemptOutcome NetworkFailed(string reason) => new(false, true, reason);
+
+    public static ConnectionAttemptOutcome PolicyTerminated(string reason) => new(false, false, reason);
 }

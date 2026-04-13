@@ -65,7 +65,11 @@ public sealed class DeviceIdentityStore
                     return oldIdentity;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 구버전 파일 마이그레이션 실패는 앱 기동을 막지 않되, 원인은 추적 가능해야 한다.
+                System.Diagnostics.Debug.WriteLine($"[DeviceIdentityStore] Legacy migration failed: {ex.Message}");
+            }
         }
 
         DeviceIdentity createdIdentity = new()

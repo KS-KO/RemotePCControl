@@ -148,7 +148,10 @@
 
         <!-- Footer / Status -->
         <DockPanel Grid.Row="3" Margin="0,15,0,0">
-            <TextBlock Text="{Binding TransferSummary}" Foreground="#64748B" VerticalAlignment="Center"/>
+            <StackPanel Orientation="Vertical">
+                <TextBlock Text="{Binding CurrentRemotePath}" Foreground="#1E293B" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding RemoteBrowserStatus}" Foreground="#64748B" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="Download Selected" Background="#D81B60" Margin="0,0,10,0" Width="150" 
                         Command="{Binding DownloadSelectedFileCommand}" 

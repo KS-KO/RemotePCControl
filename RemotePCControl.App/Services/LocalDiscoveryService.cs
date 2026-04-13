@@ -76,10 +76,17 @@ public sealed class LocalDiscoveryService : IDisposable
                 break;
             }
 
-            Task<UdpReceiveResult> receiveTask = probeClient.ReceiveAsync();
+            Task<UdpReceiveResult> receiveTask = probeClient.ReceiveAsync(cancellationToken).AsTask();
             Task completedTask = await Task.WhenAny(receiveTask, Task.Delay(remaining, cancellationToken)).ConfigureAwait(false);
-            if (!ReferenceEquals(completedTask, receiveTask))
+            
+            if (completedTask != receiveTask)
             {
+                // Timeout or cancellation occurred before receiving data.
+                // The receiveTask is still pending. We should ensure its exception is observed if it eventually fails.
+                _ = receiveTask.ContinueWith(t => 
+                {
+                    if (t.IsFaulted) { var _ = t.Exception; } // Observe exception
+                }, TaskContinuationOptions.OnlyOnFaulted);
                 break;
             }
 

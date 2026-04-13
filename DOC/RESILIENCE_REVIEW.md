@@ -130,10 +130,20 @@
 ## 7. 실행 런북 (Execution Runbook)
 
 ### 7.1 공통 준비
-1. 테스트 시작 전 `dotnet build RemotePCControl.slnx`가 성공하는지 확인한다.
-2. 기본 로그 폴더와 다운로드 폴더가 생성되는지 확인한다.
-3. 앱 실행 후 `Audit Timeline`에 초기 로그가 보이는지 확인한다.
-4. 테스트 기록 표에 테스트 시작 시각과 수행자를 먼저 기록한다.
+1. 테스트 시작 전 `dotnet build RemotePCControl.App\RemotePCControl.App.csproj -c Debug -p:Platform=x64 --no-restore`가 성공하는지 확인한다.
+2. 릴레이 경로까지 함께 점검할 경우 `dotnet build RemotePCControl.RelayServer\RemotePCControl.RelayServer.csproj -c Debug --no-restore`도 성공해야 한다.
+3. 필요 시 최초 1회는 NuGet 복원이 가능한 환경에서 `dotnet build RemotePCControl.slnx`를 수행해 패키지 상태를 맞춘다.
+4. Quick Connect 입력값, Approval Mode, Auto reconnect, Local drive redirect, Relay Server IP/Code 등 현재 UI 노출 항목을 캡처해 테스트 기록에 첨부한다.
+5. `Audit Timeline`을 열어 초기 로그가 최신순으로 보이는지 먼저 확인한다.
+6. 테스트 기록 표에 테스트 시작 시각과 수행자를 먼저 기록한다.
+
+### 7.1.1 현재 빌드 기준 수동 스모크 체크
+1. 앱 실행 후 상태 표시줄에 CPU, Memory, Git Commit Count/Hash가 표시되는지 확인한다.
+2. `Quick Connect` 대상 선택 후 Approval Mode 변경이 즉시 반영되는지 확인한다.
+3. `Remote Explorer` 실행 시 브라우저 하단에 현재 경로와 탐색 상태 문구가 분리되어 보이는지 확인한다.
+4. `Local drive redirect`를 끈 뒤 원격 파일 브라우저 요청 시 차단 메시지와 감사 로그가 남는지 확인한다.
+5. `Internet Relay (Beta)` 영역에서 Relay Code 미입력 시 친절한 오류 문구가 표시되는지 확인한다.
+6. Relay 오류(잘못된 코드, 없는 코드, 만료 코드) 발생 시 상태 문구와 Audit Timeline이 같은 의미로 정리되어 보이는지 확인한다.
 
 ### 7.2 RR-01 실행 절차
 1. 장치를 연결하고 `Connected` 상태가 될 때까지 기다린다.
@@ -177,5 +187,48 @@
 3. 저장된 지문과 다른 인증서를 제시하는 환경에서는 연결 실패가 발생하는지 확인한다.
 4. 실패 시 세션이 `Connected`로 진입하지 않아야 하며, 보안 관련 로그가 남아야 한다.
 
+### 7.8 연결 경로 및 Fallback 검증 절차
+1. Local/Public/Relay 후보가 2개 이상 포함된 테스트 장치를 준비한다.
+2. `Quick Connect` 실행 직후 `Connection Route Plan` 로그가 기대한 우선순위(Local -> Public -> Relay)로 남는지 확인한다.
+3. 첫 번째 경로를 의도적으로 실패시켜 `Connection Route Failed`와 `Connection Route Fallback` 로그가 순서대로 남는지 확인한다.
+4. 다음 경로 성공 시 상단 상태가 `Connected via <Route>` 형식으로 표시되는지 확인한다.
+5. Approval denied / cancelled / timed out 시에는 다음 경로로 넘어가지 않고 즉시 종료되는지 확인한다.
+
+### 7.9 릴레이 하드닝 검증 절차
+1. Relay Host를 동일 코드로 두 번 등록해 중복 코드 거부 문구가 표시되는지 확인한다.
+2. 잘못된 형식(6자 초과, 소문자/특수문자 포함 등)의 Relay Code 입력 시 invalid code 문구가 표시되는지 확인한다.
+3. Host 대기 후 TTL 경과 환경에서 client 연결 시 expired 문구가 표시되는지 확인한다.
+4. Relay Host 또는 Client 중 한쪽을 강제 종료했을 때 반대편 세션이 정리되고 비정상 종료 로그가 남는지 확인한다.
+
 ## 8. 결론
 Remote PC Control은 "언제 어디서나 안정적인 연결"을 핵심 가치로 한다. 단순한 기능 구현을 넘어, 극한의 환경에서도 시스템을 보호하고 사용자 경험을 유지하는 회복탄력성 확보를 최우선 순위로 둔다.
+
+## 9. 2026-04-13 Revalidation Notes
+
+### 9.1 이번 턴에서 실제 확인한 항목
+- `dotnet build RemotePCControl.slnx`가 2026-04-13 기준 성공했다.
+- `RemotePCControl.App.exe`, `RemotePCControl.RelayServer.exe`는 단기 기동 확인 후 종료했다.
+- 코드 기준으로 재연결 상태 전이, 승인 응답 처리, 텔레메트리 RTT 측정, 인증서/장치 ID 저장 경로가 여전히 연결되어 있음을 재확인했다.
+- 이후 추가 자동 스모크 검증으로 `RemotePCControl.App.csproj`, `RemotePCControl.RelayServer.csproj`를 각각 `--no-restore` 빌드 성공했고, 최신 바이너리 단기 기동도 다시 확인했다.
+
+### 9.2 이번 턴에서 재현하지 못한 항목
+- `RR-01` ~ `RR-05`의 실제 상호작용 기반 재검증은 GUI 조작, 네트워크 차단, 다중 장치 또는 다중 프로세스 역할 분리가 필요하므로 이번 턴에서는 재실행하지 못했다.
+- `SEC-01`의 지문 불일치 강제 시나리오는 별도 인증서 변조 또는 분리된 테스트 환경이 필요하므로 이번 턴에서는 정적 확인만 수행했다.
+
+### 9.3 현재 판단
+- 최신 코드와 빌드 기준으로 보면 회복탄력성/보안 기능은 여전히 연결되어 있으나, 운영 근거를 갱신하려면 수동 QA 런북 기반 재테스트가 필요하다.
+- 따라서 현재 상태는 "빌드/기동 재확인 완료, 시나리오형 회복탄력성 검증은 추가 수행 필요"로 기록한다.
+
+## 10. Current QA Focus
+- 우선순위 1: `RR-01` ~ `RR-04` 재검증으로 자동 재연결 상태 전이와 종료 사유 분리를 다시 확인한다.
+- 우선순위 2: `7.8 연결 경로 및 Fallback 검증 절차`를 통해 Local/Public/Relay 우선순위와 정책 종료 시 fallback 중단 동작을 확인한다.
+- 우선순위 3: `7.9 릴레이 하드닝 검증 절차`를 통해 duplicate / invalid / expired relay code 처리와 stale session 정리를 확인한다.
+- 우선순위 4: `SEC-01` 재검증으로 인증서 지문 유지 및 불일치 차단 시나리오를 운영 근거 수준으로 보강한다.
+
+## 11. Latest Automated Smoke Result
+| 날짜 | 검증 항목 | 결과 | 근거 |
+| --- | --- | --- | --- |
+| 2026-04-13 | App project build (`--no-restore`) | Pass | `dotnet build RemotePCControl.App\RemotePCControl.App.csproj -c Debug -p:Platform=x64 --no-restore` |
+| 2026-04-13 | Relay project build (`--no-restore`) | Pass | `dotnet build RemotePCControl.RelayServer\RemotePCControl.RelayServer.csproj -c Debug --no-restore` |
+| 2026-04-13 | App short startup | Pass | 프로세스 PID `16264` 기동 후 수동 종료 |
+| 2026-04-13 | Relay short startup | Pass | 프로세스 PID `23832` 기동 후 수동 종료 |

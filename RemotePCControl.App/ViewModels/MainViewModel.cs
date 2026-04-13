@@ -21,15 +21,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private readonly RelayCommand _requestRemoteSupportCommand;
     private readonly RelayCommand _disconnectCommand;
     private readonly RelayCommand _copyFileCommand;
-    private readonly RelayCommand _uploadFileCommand;
+    private readonly IRelayCommand _uploadFileCommand;
     private readonly RelayCommand _downloadFileCommand;
     private readonly RelayCommand _browseRedirectedDrivesCommand;
     private readonly RelayCommand _browseRemoteFilesCommand;
     private readonly RelayCommand<FileEntry> _navigateIntoFolderCommand;
     private readonly RelayCommand<BreadcrumbItem> _navigateToBreadcrumbCommand;
     private readonly RelayCommand<FileEntry> _downloadSelectedFileCommand;
-    private readonly RelayCommand _startRelayHostCommand;
-    private readonly RelayCommand _connectViaRelayCommand;
+    private readonly IRelayCommand _startRelayHostCommand;
+    private readonly IRelayCommand _connectViaRelayCommand;
     private readonly RelayCommand _lockRemoteSessionCommand;
     private readonly RelayCommand _toggleRemoteInputBlockCommand;
     private readonly IRelayCommand _pasteRemoteClipboardCommand;
@@ -70,6 +70,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private string _downloadPath = string.Empty;
     private double _downloadProgress;
     private bool _isTransferActive;
+    private bool _isRemoteBrowserBusy;
+    private string _remoteBrowserStatus = "원격 파일 브라우저를 열면 현재 경로와 탐색 상태가 여기에 표시됩니다.";
+    private string _pendingRemoteBrowsePath = string.Empty;
     private string _editDeviceName = string.Empty;
     private string _editDeviceDescription = string.Empty;
     private string _manualRegisterIP = "127.0.0.1";
@@ -101,7 +104,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _remoteSessionService.RecentConnectionsChanged += HandleRecentConnectionsChanged;
         _remoteSessionService.SessionSnapshotChanged += HandleSessionSnapshotChanged;
         _remoteSessionService.FileSystemListReceived += HandleFileSystemListReceived;
-        _remoteSessionService.FileTransferProgressChanged += (progress) => DownloadProgress = progress;
+        _remoteSessionService.FileTransferProgressChanged += HandleFileTransferProgressChanged;
         _resourceMonitorService.SnapshotUpdated += HandleResourceSnapshotUpdated;
         ApprovalModes = ["User approval", "Pre-approved device", "Support request"];
 
@@ -109,15 +112,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _requestRemoteSupportCommand = new RelayCommand(RequestRemoteSupport, () => SelectedDevice is not null);
         _disconnectCommand = new RelayCommand(Disconnect, () => ActiveSessionStatus is not "Idle");
         _copyFileCommand = new RelayCommand(CopyFile, () => SelectedDevice is not null && IsCtrlCopyEnabled);
-        _uploadFileCommand = new RelayCommand(UploadFile, () => ActiveSessionStatus is not "Idle");
+        _uploadFileCommand = new AsyncRelayCommand(UploadFileAsync, () => ActiveSessionStatus is not "Idle");
         _downloadFileCommand = new RelayCommand(DownloadFile, () => ActiveSessionStatus is not "Idle");
-        _browseRedirectedDrivesCommand = new RelayCommand(BrowseRedirectedDrives, () => ActiveSessionStatus is not "Idle");
-        _browseRemoteFilesCommand = new RelayCommand(BrowseRemoteFiles, () => ActiveSessionStatus is not "Idle");
-        _navigateIntoFolderCommand = new RelayCommand<FileEntry>(NavigateIntoFolder);
-        _navigateToBreadcrumbCommand = new RelayCommand<BreadcrumbItem>(NavigateToBreadcrumb);
-        _downloadSelectedFileCommand = new RelayCommand<FileEntry>(DownloadSelectedFile);
-        _startRelayHostCommand = new RelayCommand(StartRelayHost);
-        _connectViaRelayCommand = new RelayCommand(ConnectViaRelay);
+        _browseRedirectedDrivesCommand = new RelayCommand(BrowseRedirectedDrives, () => ActiveSessionStatus is not "Idle" && !IsRemoteBrowserBusy);
+        _browseRemoteFilesCommand = new RelayCommand(BrowseRemoteFiles, () => ActiveSessionStatus is not "Idle" && !IsRemoteBrowserBusy);
+        _navigateIntoFolderCommand = new RelayCommand<FileEntry>(NavigateIntoFolder, entry => entry?.IsDirectory == true && !IsRemoteBrowserBusy);
+        _navigateToBreadcrumbCommand = new RelayCommand<BreadcrumbItem>(NavigateToBreadcrumb, item => item is not null && !IsRemoteBrowserBusy);
+        _downloadSelectedFileCommand = new RelayCommand<FileEntry>(DownloadSelectedFile, entry => entry is not null && !entry.IsDirectory && !IsTransferActive && !IsRemoteBrowserBusy);
+        _startRelayHostCommand = new AsyncRelayCommand(StartRelayHostAsync);
+        _connectViaRelayCommand = new AsyncRelayCommand(ConnectViaRelayAsync);
         _toggleLocalDriveCommand = new RelayCommand(ToggleLocalDrive, () => SelectedDevice is not null);
         _toggleFavoriteCommand = new RelayCommand(ToggleFavorite, () => SelectedDevice is not null);
         _useRecentConnectionCommand = new RelayCommand(UseRecentConnection, () => SelectedRecentConnection is not null);
@@ -200,8 +203,31 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             if (SetProperty(ref _isTransferActive, value))
             {
                 _cancelTransferCommand.NotifyCanExecuteChanged();
+                _downloadSelectedFileCommand.NotifyCanExecuteChanged();
             }
         }
+    }
+
+    public bool IsRemoteBrowserBusy
+    {
+        get => _isRemoteBrowserBusy;
+        set
+        {
+            if (SetProperty(ref _isRemoteBrowserBusy, value))
+            {
+                _browseRedirectedDrivesCommand.NotifyCanExecuteChanged();
+                _browseRemoteFilesCommand.NotifyCanExecuteChanged();
+                _navigateIntoFolderCommand.NotifyCanExecuteChanged();
+                _navigateToBreadcrumbCommand.NotifyCanExecuteChanged();
+                _downloadSelectedFileCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
+
+    public string RemoteBrowserStatus
+    {
+        get => _remoteBrowserStatus;
+        set => SetProperty(ref _remoteBrowserStatus, value);
     }
 
     public string DownloadPath
@@ -238,7 +264,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     public RelayCommand CopyFileCommand => _copyFileCommand;
 
-    public RelayCommand UploadFileCommand => _uploadFileCommand;
+    public IRelayCommand UploadFileCommand => _uploadFileCommand;
 
     public RelayCommand DownloadFileCommand => _downloadFileCommand;
 
@@ -248,8 +274,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public RelayCommand<FileEntry> NavigateIntoFolderCommand => _navigateIntoFolderCommand;
     public RelayCommand<BreadcrumbItem> NavigateToBreadcrumbCommand => _navigateToBreadcrumbCommand;
     public RelayCommand<FileEntry> DownloadSelectedFileCommand => _downloadSelectedFileCommand;
-    public RelayCommand StartRelayHostCommand => _startRelayHostCommand;
-    public RelayCommand ConnectViaRelayCommand => _connectViaRelayCommand;
+    public IRelayCommand StartRelayHostCommand => _startRelayHostCommand;
+    public IRelayCommand ConnectViaRelayCommand => _connectViaRelayCommand;
     public RelayCommand<DeviceModel> RemoveDeviceCommand => _removeDeviceCommand;
     public RelayCommand ToggleLocalDriveCommand => _toggleLocalDriveCommand;
 
@@ -669,7 +695,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         AddLog("Clipboard File Copy", "클립보드 기반 파일 복사/붙여넣기 흐름을 활성화했습니다.", $"Target: {target}");
     }
 
-    private async void UploadFile()
+    private async Task UploadFileAsync()
     {
         var openFileDialog = new Microsoft.Win32.OpenFileDialog();
         openFileDialog.Title = "Select File to Upload to Remote PC";
@@ -679,13 +705,16 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 string filePath = openFileDialog.FileName;
                 TransferSummary = $"Uploading {System.IO.Path.GetFileName(filePath)}...";
-                await _remoteSessionService.UploadFileAsync(filePath);
+                await _remoteSessionService.UploadFileAsync(filePath).ConfigureAwait(false);
                 TransferSummary = "File uploaded successfully.";
+                StatusMessage = "선택한 파일을 원격지로 업로드했습니다.";
                 AddLog("File Transfer", $"파일 전송 완료: {System.IO.Path.GetFileName(filePath)}", "Direction: Upload");
             }
             catch (Exception ex)
             {
                 TransferSummary = $"Upload error: {ex.Message}";
+                StatusMessage = $"파일 업로드 중 오류가 발생했습니다. {ex.Message}";
+                AddLog("File Upload Error", $"파일 업로드에 실패했습니다. {ex.Message}", $"Source: {openFileDialog.FileName}");
             }
         }
     }
@@ -694,12 +723,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            // 운영 경로에서는 하드코딩 대신 원격 파일 브라우저를 통해 명시적으로 파일을 선택하도록 유도합니다.
-            BrowseRemoteFiles();
-            TransferSummary = "원격 파일 브라우저를 열었습니다. 다운로드할 파일을 선택해 주세요.";
-            LastActionSummary = "Opened remote file browser";
-            StatusMessage = "원격 경로를 직접 선택하는 다운로드 흐름으로 전환했습니다.";
-            AddLog("File Download Browser Opened", "하드코딩된 테스트 경로 대신 원격 파일 브라우저를 통해 다운로드 대상을 선택하도록 전환했습니다.", "Direction: Download Selection");
+            RequestRemoteFileListing(
+                string.Empty,
+                "원격 파일 브라우저를 열고 루트 목록을 요청했습니다. 다운로드할 파일을 선택해 주세요.",
+                "원격 파일 다운로드 대상 탐색을 시작했습니다.",
+                "File Download Browser Opened",
+                "하드코딩된 테스트 경로 대신 원격 파일 브라우저를 통해 다운로드 대상을 선택하도록 전환했습니다.",
+                "Direction: Download Selection");
         }
         catch (Exception ex)
         {
@@ -711,21 +741,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            if (!IsLocalDriveRedirectEnabled)
-            {
-                TransferSummary = "로컬 드라이브 리디렉션이 비활성화되어 있어 목록을 요청할 수 없습니다.";
-                LastActionSummary = "Drive redirect is disabled";
-                StatusMessage = "Local drive redirect 옵션을 먼저 활성화해 주세요.";
-                AddLog("Drive Browse Blocked", "리디렉션이 비활성화된 상태에서 드라이브 목록 요청이 차단되었습니다.", "Remote FS");
-                return;
-            }
-
-            TransferSummary = "Requesting redirected drive list...";
-            _remoteSessionService.RequestFileSystemList(string.Empty); // Empty means root (drives)
-            OpenOrActivateRemoteBrowser();
-            LastActionSummary = "Requested redirected drive listing";
-            StatusMessage = "FileSystem ListRequest sent to client.";
-            AddLog("Drive Browse Requested", "상대방의 리디렉션된 드라이브 목록을 요청했습니다.", "Remote FS");
+            RequestRemoteFileListing(
+                string.Empty,
+                "리디렉션된 드라이브 루트 목록을 요청했습니다.",
+                "상대방의 리디렉션된 드라이브 목록을 요청했습니다.",
+                "Drive Browse Requested",
+                "상대방의 리디렉션된 드라이브 목록을 요청했습니다.",
+                "Remote FS");
         }
         catch (Exception ex)
         {
@@ -737,19 +759,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            if (!IsLocalDriveRedirectEnabled)
-            {
-                TransferSummary = "원격 파일 탐색을 열 수 없습니다. Local drive redirect가 꺼져 있습니다.";
-                LastActionSummary = "Drive redirect is disabled";
-                StatusMessage = "Local drive redirect 옵션을 켠 뒤 다시 시도해 주세요.";
-                AddLog("Remote Explorer Blocked", "리디렉션이 비활성화되어 원격 파일 브라우저를 열지 않았습니다.", "Remote FS");
-                return;
-            }
-
-            // 루트 목록 요청
-            _remoteSessionService.RequestFileSystemList(string.Empty);
-            OpenOrActivateRemoteBrowser();
-            AddLog("Remote Explorer", "원격 장치의 파일 탐색기 창을 열었습니다.", "Remote FS");
+            RequestRemoteFileListing(
+                string.Empty,
+                "원격 파일 브라우저를 열고 루트 목록을 요청했습니다.",
+                "원격 파일 브라우저가 루트 목록을 요청 중입니다.",
+                "Remote Explorer",
+                "원격 장치의 파일 탐색기 창을 열었습니다.",
+                "Remote FS");
         }
         catch (Exception ex)
         {
@@ -760,7 +776,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void NavigateIntoFolder(FileEntry? entry)
     {
         if (entry == null || !entry.IsDirectory) return;
-        _remoteSessionService.RequestFileSystemList(entry.Path);
+        RequestRemoteFileListing(
+            entry.Path,
+            $"폴더를 여는 중입니다: {entry.Name}",
+            $"원격 폴더 `{entry.Name}` 목록을 요청했습니다.",
+            "Remote Explorer Navigate",
+            $"원격 폴더 목록 요청: {entry.Path}",
+            "Remote FS / Folder");
     }
 
     private void UpdateBreadcrumbs(string path)
@@ -796,23 +818,50 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void NavigateToBreadcrumb(BreadcrumbItem? item)
     {
         if (item == null) return;
-        _remoteSessionService.RequestFileSystemList(item.Path);
+        RequestRemoteFileListing(
+            item.Path,
+            string.IsNullOrWhiteSpace(item.Path) ? "루트 경로로 이동 중입니다." : $"경로 이동 중: {item.Path}",
+            string.IsNullOrWhiteSpace(item.Path) ? "원격 브라우저가 루트 경로를 다시 요청했습니다." : $"원격 브라우저가 `{item.Path}` 경로를 요청했습니다.",
+            "Remote Explorer Breadcrumb",
+            string.IsNullOrWhiteSpace(item.Path) ? "원격 브라우저가 루트 경로로 이동했습니다." : $"원격 브라우저가 `{item.Path}` 경로로 이동했습니다.",
+            "Remote FS / Breadcrumb");
     }
 
-    private async void DownloadSelectedFile(FileEntry? entry)
+    private void DownloadSelectedFile(FileEntry? entry)
+    {
+        _ = DownloadSelectedFileAsync(entry);
+    }
+
+    private async Task DownloadSelectedFileAsync(FileEntry? entry)
     {
         if (entry == null || entry.IsDirectory) return;
-        
+        if (IsTransferActive)
+        {
+            TransferSummary = "다른 파일 전송이 진행 중입니다. 현재 전송이 끝난 뒤 다시 시도해 주세요.";
+            RemoteBrowserStatus = "파일 다운로드 요청을 보류했습니다. 진행 중인 전송이 끝나야 새 다운로드를 시작할 수 있습니다.";
+            StatusMessage = "동시에 여러 다운로드를 시작하지 않도록 차단했습니다.";
+            AddLog("File Download Deferred", $"전송 중인 작업 때문에 `{entry.Name}` 다운로드를 보류했습니다.", "File / Inbound / Busy");
+            return;
+        }
+
         try
         {
-            TransferSummary = $"Requesting download: {entry.Name}...";
-            await _remoteSessionService.DownloadFileAsync(entry.Path);
+            DownloadProgress = 0;
+            IsTransferActive = true;
+            TransferSummary = $"다운로드 요청 중: {entry.Name}";
+            RemoteBrowserStatus = $"선택한 파일 `{entry.Name}` 다운로드를 요청했습니다.";
+            StatusMessage = "원격 파일 메타데이터를 기다리는 중입니다.";
+            await _remoteSessionService.DownloadFileAsync(entry.Path).ConfigureAwait(false);
             LastActionSummary = $"Download started: {entry.Name}";
             AddLog("File Download", $"원격 파일 다운로드 시작: {entry.Name}", $"Source: {entry.Path}");
         }
         catch (Exception ex)
         {
             TransferSummary = $"Download error: {ex.Message}";
+            RemoteBrowserStatus = $"다운로드 시작 실패: {entry.Name}";
+            StatusMessage = $"파일 다운로드 요청을 시작하지 못했습니다. {ex.Message}";
+            IsTransferActive = false;
+            DownloadProgress = 0;
         }
     }
 
@@ -823,6 +872,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StatusMessage = IsLocalDriveRedirectEnabled
             ? "Local drives are exposed to the remote session."
             : "Local drives are hidden from the remote session.";
+        if (!IsLocalDriveRedirectEnabled)
+        {
+            IsRemoteBrowserBusy = false;
+            _pendingRemoteBrowsePath = string.Empty;
+            RemoteBrowserStatus = "로컬 드라이브 리디렉션이 꺼져 있어 원격 파일 브라우저가 비활성화되었습니다.";
+            TransferSummary = "로컬 드라이브 리디렉션이 비활성화되어 원격 파일 탐색을 중지했습니다.";
+        }
+        else
+        {
+            RemoteBrowserStatus = "로컬 드라이브 리디렉션이 활성화되었습니다. 원격 파일 브라우저를 다시 열 수 있습니다.";
+        }
         AddLog("Drive Redirect", LastActionSummary, $"Target: {SelectedDevice?.Name ?? QuickConnectDeviceId}");
     }
 
@@ -847,6 +907,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         DownloadProgress = 0;
         IsTransferActive = false;
         TransferSummary = "File transfer cancelled by user.";
+        RemoteBrowserStatus = "사용자가 현재 파일 전송을 취소했습니다.";
     }
 
     private void ToggleFavorite()
@@ -923,7 +984,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StatusMessage = "현재 목록에서 장치를 찾지 못해 장치 코드만 복원했습니다.";
     }
 
-    private async void StartRelayHost()
+    private async Task StartRelayHostAsync()
     {
         if (string.IsNullOrWhiteSpace(RelayCode))
         {
@@ -933,16 +994,18 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            await _remoteSessionService.StartRelayHostAsync(RelayIp, 9000, RelayCode);
+            await _remoteSessionService.StartRelayHostAsync(RelayIp, 9000, RelayCode).ConfigureAwait(false);
             StatusMessage = "릴레이 서버에서 대기 중입니다...";
+            AddLog("Relay Host Ready", $"릴레이 코드 `{RelayCode}` 로 호스트 대기를 시작했습니다.", $"Relay: {RelayIp}:9000");
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Relay Host Error: {ex.Message}";
+            StatusMessage = $"릴레이 호스트 대기 시작에 실패했습니다. {ex.Message}";
+            AddLog("Relay Host Error", $"릴레이 호스트 대기 시작 실패: {ex.Message}", $"Relay: {RelayIp}:9000 / Code: {RelayCode}");
         }
     }
 
-    private async void ConnectViaRelay()
+    private async Task ConnectViaRelayAsync()
     {
         if (string.IsNullOrWhiteSpace(RelayCode))
         {
@@ -952,12 +1015,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            await _remoteSessionService.ConnectViaRelayAsync(RelayIp, 9000, RelayCode);
+            await _remoteSessionService.ConnectViaRelayAsync(RelayIp, 9000, RelayCode).ConfigureAwait(false);
             StatusMessage = "릴레이 서버를 통해 연결 시도 중...";
+            AddLog("Relay Connect Requested", $"릴레이 코드 `{RelayCode}` 로 연결을 시도했습니다.", $"Relay: {RelayIp}:9000");
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Relay Connect Error: {ex.Message}";
+            StatusMessage = $"릴레이 연결 시작에 실패했습니다. {ex.Message}";
+            AddLog("Relay Connect Error", $"릴레이 연결 시작 실패: {ex.Message}", $"Relay: {RelayIp}:9000 / Code: {RelayCode}");
         }
     }
 
@@ -979,10 +1044,13 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             try
             {
+                IsRemoteBrowserBusy = false;
+                _pendingRemoteBrowsePath = string.Empty;
                 FileSystemListResponse? response = JsonSerializer.Deserialize<FileSystemListResponse>(json);
                 if (response is null)
                 {
                     TransferSummary = "파일 시스템 응답을 읽을 수 없습니다.";
+                    RemoteBrowserStatus = "원격 파일 목록 응답을 해석하지 못했습니다.";
                     return;
                 }
 
@@ -990,6 +1058,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 {
                     TransferSummary = $"파일 시스템 요청 실패: {response.ErrorMessage}";
                     StatusMessage = response.ErrorMessage ?? "원격 파일 시스템 요청이 실패했습니다.";
+                    RemoteBrowserStatus = string.IsNullOrWhiteSpace(response.CurrentPath)
+                        ? $"루트 목록을 불러오지 못했습니다. {response.ErrorMessage}"
+                        : $"`{response.CurrentPath}` 경로를 열지 못했습니다. {response.ErrorMessage}";
                     AddLog("FS List Failed", response.ErrorMessage ?? "원격 파일 시스템 요청이 실패했습니다.", $"Remote FS / Path: {response.CurrentPath}");
                     return;
                 }
@@ -1002,13 +1073,33 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
                 CurrentRemotePath = response.CurrentPath;
                 TransferSummary = $"Remote directory listing updated. ({RemoteFiles.Count} items)";
+                RemoteBrowserStatus = string.IsNullOrWhiteSpace(response.CurrentPath)
+                    ? $"루트 목록을 불러왔습니다. 항목 {RemoteFiles.Count}개"
+                    : $"현재 경로: {response.CurrentPath} / 항목 {RemoteFiles.Count}개";
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[MainViewModel] FS List processing error: {ex.Message}");
                 TransferSummary = $"Error parsing FS list: {ex.Message}";
+                RemoteBrowserStatus = $"원격 파일 목록 처리 실패: {ex.Message}";
+                IsRemoteBrowserBusy = false;
+                _pendingRemoteBrowsePath = string.Empty;
             }
         });
+    }
+
+    private void HandleFileTransferProgressChanged(double progress)
+    {
+        DownloadProgress = progress;
+        if (progress >= 100)
+        {
+            IsTransferActive = false;
+            RemoteBrowserStatus = "파일 전송이 완료되었습니다.";
+        }
+        else if (progress > 0)
+        {
+            RemoteBrowserStatus = $"파일 전송 진행 중: {progress:0}%";
+        }
     }
 
     private void OpenOrActivateRemoteBrowser()
@@ -1033,6 +1124,45 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _remoteFileBrowserWindow.Closed += (_, _) => _remoteFileBrowserWindow = null;
             _remoteFileBrowserWindow.Show();
         });
+    }
+
+    private void RequestRemoteFileListing(
+        string path,
+        string transferSummary,
+        string statusMessage,
+        string logTitle,
+        string logMessage,
+        string logMeta)
+    {
+        if (!IsLocalDriveRedirectEnabled)
+        {
+            TransferSummary = "원격 파일 탐색을 열 수 없습니다. Local drive redirect가 꺼져 있습니다.";
+            LastActionSummary = "Drive redirect is disabled";
+            StatusMessage = "Local drive redirect 옵션을 켠 뒤 다시 시도해 주세요.";
+            RemoteBrowserStatus = "로컬 드라이브 리디렉션이 비활성화되어 원격 파일 탐색 요청을 차단했습니다.";
+            AddLog("Remote Explorer Blocked", "리디렉션이 비활성화되어 원격 파일 브라우저를 열지 않았습니다.", "Remote FS");
+            return;
+        }
+
+        if (IsRemoteBrowserBusy)
+        {
+            string targetPath = string.IsNullOrWhiteSpace(_pendingRemoteBrowsePath) ? "Root" : _pendingRemoteBrowsePath;
+            TransferSummary = $"이전 탐색 요청 응답을 기다리는 중입니다: {targetPath}";
+            RemoteBrowserStatus = $"`{targetPath}` 경로 응답이 아직 도착하지 않아 새 요청을 잠시 보류했습니다.";
+            StatusMessage = "원격 파일 시스템 응답이 도착한 뒤 다시 시도해 주세요.";
+            return;
+        }
+
+        OpenOrActivateRemoteBrowser();
+        IsRemoteBrowserBusy = true;
+        _pendingRemoteBrowsePath = path;
+        TransferSummary = transferSummary;
+        StatusMessage = statusMessage;
+        RemoteBrowserStatus = string.IsNullOrWhiteSpace(path)
+            ? "루트 목록을 불러오는 중입니다."
+            : $"경로를 불러오는 중입니다: {path}";
+        _remoteSessionService.RequestFileSystemList(path);
+        AddLog(logTitle, logMessage, logMeta);
     }
     private string BuildTransferSummary()
     {
@@ -1145,6 +1275,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _toggleLocalDriveCommand.NotifyCanExecuteChanged();
         _toggleFavoriteCommand.NotifyCanExecuteChanged();
         _useRecentConnectionCommand.NotifyCanExecuteChanged();
+        _navigateIntoFolderCommand.NotifyCanExecuteChanged();
+        _navigateToBreadcrumbCommand.NotifyCanExecuteChanged();
+        _downloadSelectedFileCommand.NotifyCanExecuteChanged();
         RaisePropertyChanged(nameof(SelectedDeviceFavoriteLabel));
         RaisePropertyChanged(nameof(OnlineDeviceCount));
         RaisePropertyChanged(nameof(DeviceCount));
@@ -1156,6 +1289,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         _remoteSessionService.DevicesChanged -= HandleDevicesChanged;
         _remoteSessionService.RecentConnectionsChanged -= HandleRecentConnectionsChanged;
         _remoteSessionService.SessionSnapshotChanged -= HandleSessionSnapshotChanged;
+        _remoteSessionService.FileSystemListReceived -= HandleFileSystemListReceived;
+        _remoteSessionService.FileTransferProgressChanged -= HandleFileTransferProgressChanged;
         _resourceMonitorService.SnapshotUpdated -= HandleResourceSnapshotUpdated;
     }
 }
