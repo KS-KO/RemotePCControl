@@ -1,6 +1,7 @@
 using System.Windows;
 using RemotePCControl.App.Services;
 using RemotePCControl.App.ViewModels;
+using RemotePCControl.App.Views;
 
 namespace RemotePCControl.App;
 
@@ -30,6 +31,16 @@ public partial class MainWindow : Window
             _resourceMonitorService.Dispose();
             _sessionService.Dispose();
             _trayIconService.Dispose();
+        };
+
+        // 종료 시 확인 창 표시 (Modern UI 스타일)
+        Closing += (s, e) =>
+        {
+            var dialog = new ExitConfirmDialog { Owner = this };
+            if (dialog.ShowDialog() != true)
+            {
+                e.Cancel = true;
+            }
         };
 
         // 트레이 아이콘 상태 연동 (ViewModel의 상태 메시지 관찰)
