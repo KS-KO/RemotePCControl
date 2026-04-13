@@ -114,29 +114,29 @@ public sealed class ApprovalService
             Height = 260;
             ResizeMode = ResizeMode.NoResize;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            Background = Brushes.White;
+            Background = System.Windows.Media.Brushes.White;
             ShowInTaskbar = false;
 
             _expiresAtUtc = DateTime.UtcNow.Add(options.Timeout);
             _countdownText = new TextBlock
             {
                 Margin = new Thickness(0, 10, 0, 0),
-                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184))
+                Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(148, 163, 184))
             };
 
-            Button approveButton = CreateButton(options.ApproveButtonText, Color.FromRgb(23, 92, 211), (_, _) =>
+            System.Windows.Controls.Button approveButton = CreateButton(options.ApproveButtonText, System.Windows.Media.Color.FromRgb(23, 92, 211), (_, _) =>
             {
                 _decision = ApprovalDecision.Approved;
                 Close();
             });
 
-            Button denyButton = CreateButton(options.DenyButtonText, Color.FromRgb(185, 28, 28), (_, _) =>
+            System.Windows.Controls.Button denyButton = CreateButton(options.DenyButtonText, System.Windows.Media.Color.FromRgb(185, 28, 28), (_, _) =>
             {
                 _decision = ApprovalDecision.Denied;
                 Close();
             });
 
-            Button cancelButton = CreateButton(options.CancelButtonText, Color.FromRgb(100, 116, 139), (_, _) =>
+            System.Windows.Controls.Button cancelButton = CreateButton(options.CancelButtonText, System.Windows.Media.Color.FromRgb(100, 116, 139), (_, _) =>
             {
                 _decision = ApprovalDecision.Cancelled;
                 Close();
@@ -165,8 +165,8 @@ public sealed class ApprovalService
                         new StackPanel
                         {
                             Margin = new Thickness(0, 24, 0, 0),
-                            Orientation = Orientation.Horizontal,
-                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Orientation = System.Windows.Controls.Orientation.Horizontal,
+                            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
                             Children =
                             {
                                 cancelButton,
@@ -192,13 +192,13 @@ public sealed class ApprovalService
         {
             TaskCompletionSource<ApprovalDecision> tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            Application.Current.Dispatcher.InvokeAsync(() =>
+            System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
             {
                 ApprovalPromptWindow window = new(options);
 
                 using CancellationTokenRegistration registration = cancellationToken.Register(() =>
                 {
-                    Application.Current.Dispatcher.BeginInvoke(() =>
+                    System.Windows.Application.Current.Dispatcher.BeginInvoke(() =>
                     {
                         if (window.IsVisible)
                         {
@@ -228,16 +228,16 @@ public sealed class ApprovalService
             _countdownText.Text = $"응답 제한 시간: {remaining.Seconds + (remaining.Minutes * 60)}초 남음";
         }
 
-        private static Button CreateButton(string text, Color backgroundColor, RoutedEventHandler clickHandler)
+        private static System.Windows.Controls.Button CreateButton(string text, System.Windows.Media.Color backgroundColor, RoutedEventHandler clickHandler)
         {
-            Button button = new()
+            System.Windows.Controls.Button button = new()
             {
                 Content = text,
                 Margin = new Thickness(8, 0, 0, 0),
                 Padding = new Thickness(14, 8, 14, 8),
-                Foreground = Brushes.White,
+                Foreground = System.Windows.Media.Brushes.White,
                 Background = new SolidColorBrush(backgroundColor),
-                BorderBrush = Brushes.Transparent
+                BorderBrush = System.Windows.Media.Brushes.Transparent
             };
             button.Click += clickHandler;
             return button;

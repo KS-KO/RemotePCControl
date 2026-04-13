@@ -6,6 +6,7 @@
         xmlns:models="clr-namespace:RemotePCControl.App.Models"
         mc:Ignorable="d"
         Title="Remote PC Control"
+        Icon="Resources/AppIcon.png"
         Width="1440"
         Height="920"
         MinWidth="1220"

@@ -141,7 +141,7 @@ public partial class RemoteDesktopWindow : Window
     {
         if (!isVisible)
         {
-            DesktopImage.Cursor = Cursors.None;
+            DesktopImage.Cursor = System.Windows.Input.Cursors.None;
             return;
         }
 
@@ -149,30 +149,30 @@ public partial class RemoteDesktopWindow : Window
         {
             DesktopImage.Cursor = cursorName switch
             {
-                "Arrow" => Cursors.Arrow,
-                "IBeam" => Cursors.IBeam,
-                "Wait" => Cursors.Wait,
-                "Cross" => Cursors.Cross,
-                "UpArrow" => Cursors.UpArrow,
-                "SizeNWSE" => Cursors.SizeNWSE,
-                "SizeNESW" => Cursors.SizeNESW,
-                "SizeWE" => Cursors.SizeWE,
-                "SizeNS" => Cursors.SizeNS,
-                "SizeAll" => Cursors.SizeAll,
-                "No" => Cursors.No,
-                "Hand" => Cursors.Hand,
-                "AppStarting" => Cursors.AppStarting,
-                "Help" => Cursors.Help,
-                _ => Cursors.Arrow
+                "Arrow" => System.Windows.Input.Cursors.Arrow,
+                "IBeam" => System.Windows.Input.Cursors.IBeam,
+                "Wait" => System.Windows.Input.Cursors.Wait,
+                "Cross" => System.Windows.Input.Cursors.Cross,
+                "UpArrow" => System.Windows.Input.Cursors.UpArrow,
+                "SizeNWSE" => System.Windows.Input.Cursors.SizeNWSE,
+                "SizeNESW" => System.Windows.Input.Cursors.SizeNESW,
+                "SizeWE" => System.Windows.Input.Cursors.SizeWE,
+                "SizeNS" => System.Windows.Input.Cursors.SizeNS,
+                "SizeAll" => System.Windows.Input.Cursors.SizeAll,
+                "No" => System.Windows.Input.Cursors.No,
+                "Hand" => System.Windows.Input.Cursors.Hand,
+                "AppStarting" => System.Windows.Input.Cursors.AppStarting,
+                "Help" => System.Windows.Input.Cursors.Help,
+                _ => System.Windows.Input.Cursors.Arrow
             };
         }
         catch
         {
-            DesktopImage.Cursor = Cursors.Arrow;
+            DesktopImage.Cursor = System.Windows.Input.Cursors.Arrow;
         }
     }
 
-    private void CalculateAndSendMouseEvent(MouseEventArgs e, InputInjectionService.MouseEventFlags flag)
+    private void CalculateAndSendMouseEvent(System.Windows.Input.MouseEventArgs e, InputInjectionService.MouseEventFlags flag)
     {
         if (_frameWidth == 0 || _frameHeight == 0)
         {
@@ -210,29 +210,29 @@ public partial class RemoteDesktopWindow : Window
         OnMouseInputCaptured?.Invoke(targetX, targetY, flag);
     }
 
-    private void DesktopImage_MouseMove(object sender, MouseEventArgs e) => CalculateAndSendMouseEvent(e, InputInjectionService.MouseEventFlags.Move | InputInjectionService.MouseEventFlags.Absolute);
-    private void DesktopImage_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void DesktopImage_MouseMove(object sender, System.Windows.Input.MouseEventArgs e) => CalculateAndSendMouseEvent(e, InputInjectionService.MouseEventFlags.Move | InputInjectionService.MouseEventFlags.Absolute);
+    private void DesktopImage_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         FocusRemoteWindow();
         CalculateAndSendMouseEvent(e, InputInjectionService.MouseEventFlags.LeftDown | InputInjectionService.MouseEventFlags.Absolute);
     }
 
-    private void DesktopImage_MouseLeftButtonUp(object sender, MouseButtonEventArgs e) => CalculateAndSendMouseEvent(e, InputInjectionService.MouseEventFlags.LeftUp | InputInjectionService.MouseEventFlags.Absolute);
+    private void DesktopImage_MouseLeftButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e) => CalculateAndSendMouseEvent(e, InputInjectionService.MouseEventFlags.LeftUp | InputInjectionService.MouseEventFlags.Absolute);
 
-    private void DesktopImage_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    private void DesktopImage_MouseRightButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
         FocusRemoteWindow();
         CalculateAndSendMouseEvent(e, InputInjectionService.MouseEventFlags.RightDown | InputInjectionService.MouseEventFlags.Absolute);
     }
 
-    private void DesktopImage_MouseRightButtonUp(object sender, MouseButtonEventArgs e) => CalculateAndSendMouseEvent(e, InputInjectionService.MouseEventFlags.RightUp | InputInjectionService.MouseEventFlags.Absolute);
+    private void DesktopImage_MouseRightButtonUp(object sender, System.Windows.Input.MouseButtonEventArgs e) => CalculateAndSendMouseEvent(e, InputInjectionService.MouseEventFlags.RightUp | InputInjectionService.MouseEventFlags.Absolute);
 
-    private void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    private void Window_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         // FR-8: Ctrl+V 입력을 통한 로컬 파일 업로드 처리
         if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.V)
         {
-            if (Clipboard.ContainsFileDropList())
+            if (System.Windows.Clipboard.ContainsFileDropList())
             {
                 OnLocalPasteRequested?.Invoke();
                 e.Handled = true;
@@ -247,7 +247,7 @@ public partial class RemoteDesktopWindow : Window
         }
     }
 
-    private void Window_PreviewKeyUp(object sender, KeyEventArgs e)
+    private void Window_PreviewKeyUp(object sender, System.Windows.Input.KeyEventArgs e)
     {
         if (TryTranslateVirtualKey(e, out ushort virtualKey))
         {
@@ -263,7 +263,7 @@ public partial class RemoteDesktopWindow : Window
         Keyboard.Focus(this);
     }
 
-    private static bool TryTranslateVirtualKey(KeyEventArgs e, out ushort virtualKey)
+    private static bool TryTranslateVirtualKey(System.Windows.Input.KeyEventArgs e, out ushort virtualKey)
     {
         Key key = e.Key == Key.System ? e.SystemKey : e.Key;
         if (key == Key.None)

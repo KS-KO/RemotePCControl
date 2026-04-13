@@ -787,7 +787,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void UpdateBreadcrumbs(string path)
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
         {
             Breadcrumbs.Clear();
             Breadcrumbs.Add(new BreadcrumbItem("Root", string.Empty));
@@ -1040,7 +1040,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void HandleFileSystemListReceived(string json)
     {
-        Application.Current?.Dispatcher.Invoke(() =>
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
         {
             try
             {
@@ -1104,7 +1104,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void OpenOrActivateRemoteBrowser()
     {
-        Application.Current.Dispatcher.Invoke(() =>
+        System.Windows.Application.Current.Dispatcher.Invoke(() =>
         {
             if (_remoteFileBrowserWindow is { IsLoaded: true })
             {
@@ -1248,7 +1248,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         if (device == null) return;
         
-        var result = MessageBox.Show($"정말로 장치 '{device.Name}'를 삭제하시겠습니까?", "장치 삭제 확인", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        var result = System.Windows.MessageBox.Show($"정말로 장치 '{device.Name}'를 삭제하시겠습니까?", "장치 삭제 확인", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (result == MessageBoxResult.Yes)
         {
             _remoteSessionService.RemoveDevice(device.DeviceId);

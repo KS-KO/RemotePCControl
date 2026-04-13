@@ -357,7 +357,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     {
         _selectedViewerDisplayId = string.IsNullOrWhiteSpace(displayId) ? null : displayId;
         var selectedBounds = GetSelectedViewerBounds();
-        Application.Current?.Dispatcher.Invoke(() => _rdpWindow?.SetPreferredViewerBounds(selectedBounds));
+        System.Windows.Application.Current?.Dispatcher.Invoke(() => _rdpWindow?.SetPreferredViewerBounds(selectedBounds));
         RefreshViewerWindowStatus();
 
         if (selectedBounds is null)
@@ -375,7 +375,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
     public void SetKeepViewerOnSafeDisplay(bool enabled)
     {
         _keepViewerOnSafeDisplay = enabled;
-        Application.Current?.Dispatcher.Invoke(() => _rdpWindow?.SetKeepOnSafeDisplay(enabled));
+        System.Windows.Application.Current?.Dispatcher.Invoke(() => _rdpWindow?.SetKeepOnSafeDisplay(enabled));
         PublishLog("Viewer Placement", enabled ? "Viewer will stay off the captured display." : "Viewer can be placed on the captured display.", "Viewer");
     }
 
@@ -483,7 +483,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _captureCts?.Dispose();
         _captureCts = null;
         StopClipboardSyncLoop();
-        Application.Current?.Dispatcher.Invoke(CloseViewerWindowInternal);
+        System.Windows.Application.Current?.Dispatcher.Invoke(CloseViewerWindowInternal);
         TcpSession? sessionToClose = _currentSession;
         _currentSession = null;
         sessionToClose?.Dispose();
@@ -707,7 +707,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         }
 
         _isDisposed = true;
-        Application.Current?.Dispatcher.Invoke(CloseViewerWindowInternal);
+        System.Windows.Application.Current?.Dispatcher.Invoke(CloseViewerWindowInternal);
         _captureCts?.Cancel();
         StopClipboardSyncLoop();
         _tcpManager.Dispose();
@@ -940,7 +940,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             byte encodingMode = payload.Span[9];
             ReadOnlyMemory<byte> frameData = payload.Slice(10);
 
-            Application.Current?.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
                 if (_rdpWindow == null || !_rdpWindow.IsLoaded)
                 {
@@ -1023,7 +1023,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         {
             bool isVisible = payload.Span[1] != 0;
             string cursorName = payload.Length > 2 ? Encoding.UTF8.GetString(payload.Span.Slice(2)) : "Arrow";
-            Application.Current?.Dispatcher.Invoke(() => _rdpWindow?.UpdateRemoteCursor(cursorName, isVisible));
+            System.Windows.Application.Current?.Dispatcher.Invoke(() => _rdpWindow?.UpdateRemoteCursor(cursorName, isVisible));
         }
         else if (packetType == FileSystemListRequestPacketType && payload.Length >= 5)
         {
@@ -1132,7 +1132,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
         _captureCts?.Dispose();
         _captureCts = null;
         StopClipboardSyncLoop();
-        Application.Current?.Dispatcher.Invoke(CloseViewerWindowInternal);
+        System.Windows.Application.Current?.Dispatcher.Invoke(CloseViewerWindowInternal);
         PublishLog(
             "Session Disconnected",
             ex is null ? $"Session {session.SessionId[..8]} closed." : $"Session {session.SessionId[..8]} closed with error: {ex.Message}",
@@ -1774,7 +1774,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
             return;
         }
 
-        Application.Current?.Dispatcher.Invoke(() =>
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
         {
             _lastAppliedClipboardImageHash = imageHash;
             _clipboardSyncService.SetImageFromPng(imageBytes);
@@ -2111,7 +2111,7 @@ public sealed class RealRemoteSessionService : IRemoteSessionService, IDisposabl
 
     private void RefreshViewerWindowStatus()
     {
-        Application.Current?.Dispatcher.Invoke(() =>
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             _rdpWindow?.SetStatusDetails(
                 GetSelectedCaptureDisplayLabel(),
                 GetSelectedViewerDisplayLabel(),

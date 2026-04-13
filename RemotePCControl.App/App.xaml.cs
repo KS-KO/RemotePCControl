@@ -7,7 +7,7 @@ using System.Windows.Threading;
 
 namespace RemotePCControl.App;
 
-public partial class App : Application
+public partial class App : System.Windows.Application
 {
     private Mutex? _mutex;
     private bool _ownsMutex;
@@ -34,8 +34,8 @@ public partial class App : Application
         if (!createdNew)
         {
             WriteStartupLog("SingleInstance", "Existing instance detected. Showing duplicate-instance notice and shutting down.");
-            MessageBox.Show("프로그램이 이미 실행 중입니다.\n중복 실행을 방지하기 위해 앱을 종료합니다.", "Remote PC Control", MessageBoxButton.OK, MessageBoxImage.Information);
-            Application.Current.Shutdown();
+            System.Windows.MessageBox.Show("프로그램이 이미 실행 중입니다.\n중복 실행을 방지하기 위해 앱을 종료합니다.", "Remote PC Control", MessageBoxButton.OK, MessageBoxImage.Information);
+            System.Windows.Application.Current.Shutdown();
             return;
         }
 
@@ -54,7 +54,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             WriteStartupLog("StartupFailure", "MainWindow startup failed.", ex);
-            MessageBox.Show(
+            System.Windows.MessageBox.Show(
                 $"앱 시작 중 오류가 발생했습니다.\n진단 로그: {StartupLogPath}",
                 "Remote PC Control",
                 MessageBoxButton.OK,

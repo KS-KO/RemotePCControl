@@ -74,11 +74,11 @@ public sealed class DeviceModel : ObservableObject
             _ => "Offline"
         };
 
-    public Brush StatusBrush =>
+    public System.Windows.Media.Brush StatusBrush =>
         Status switch
         {
-            DeviceStatus.Online => new SolidColorBrush(Color.FromRgb(14, 159, 110)),
-            DeviceStatus.Busy => new SolidColorBrush(Color.FromRgb(217, 119, 6)),
-            _ => new SolidColorBrush(Color.FromRgb(115, 127, 148))
+            DeviceStatus.Online => new SolidColorBrush(System.Windows.Media.Color.FromRgb(14, 159, 110)),
+            DeviceStatus.Busy => new SolidColorBrush(System.Windows.Media.Color.FromRgb(217, 119, 6)),
+            _ => new SolidColorBrush(System.Windows.Media.Color.FromRgb(115, 127, 148))
         };
 }

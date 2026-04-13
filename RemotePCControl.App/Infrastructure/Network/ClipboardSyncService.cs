@@ -15,11 +15,11 @@ public sealed class ClipboardSyncService
         string text = string.Empty;
         try
         {
-            Application.Current?.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
-                if (Clipboard.ContainsText())
+                if (System.Windows.Clipboard.ContainsText())
                 {
-                    text = Clipboard.GetText();
+                    text = System.Windows.Clipboard.GetText();
                 }
             });
         }
@@ -36,9 +36,9 @@ public sealed class ClipboardSyncService
 
         try
         {
-            Application.Current?.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
-                Clipboard.SetText(text);
+                System.Windows.Clipboard.SetText(text);
             });
         }
         catch (Exception ex)
@@ -52,11 +52,11 @@ public sealed class ClipboardSyncService
         byte[]? result = null;
         try
         {
-            Application.Current?.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
-                if (Clipboard.ContainsImage())
+                if (System.Windows.Clipboard.ContainsImage())
                 {
-                    BitmapSource image = Clipboard.GetImage();
+                    BitmapSource image = System.Windows.Clipboard.GetImage();
                     using var ms = new MemoryStream();
                     var encoder = new PngBitmapEncoder();
                     encoder.Frames.Add(BitmapFrame.Create(image));
@@ -78,11 +78,11 @@ public sealed class ClipboardSyncService
 
         try
         {
-            Application.Current?.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
                 using var ms = new MemoryStream(pngData);
                 var decoder = new PngBitmapDecoder(ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
-                Clipboard.SetImage(decoder.Frames[0]);
+                System.Windows.Clipboard.SetImage(decoder.Frames[0]);
             });
         }
         catch (Exception ex)
@@ -96,11 +96,11 @@ public sealed class ClipboardSyncService
         string[]? result = null;
         try
         {
-            Application.Current?.Dispatcher.Invoke(() =>
+            System.Windows.Application.Current?.Dispatcher.Invoke(() =>
             {
-                if (Clipboard.ContainsFileDropList())
+                if (System.Windows.Clipboard.ContainsFileDropList())
                 {
-                    var files = Clipboard.GetFileDropList();
+                    var files = System.Windows.Clipboard.GetFileDropList();
                     if (files != null && files.Count > 0)
                     {
                         result = new string[files.Count];
